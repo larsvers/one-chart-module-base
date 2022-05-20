@@ -48,7 +48,7 @@ async function buildAPIChart(info, chartData) {
     version: config.version,
     api_key: apiKey,
     container: info.container,
-    // height: info.height,
+    // height: info.height, // controlled by the container element
   };
 
   const state = {
