@@ -1,10 +1,12 @@
-const dataUrl = '../data/c02_covid_impacts_latest.csv';
+// const dataUrl = '../data/c02_covid_impacts_latest.csv';
 // Or use GH URL:
-// const dataUrl =
-//   'https://raw.githubusercontent.com/larsvers/one-chart-module-base/main/data/c02_covid_impacts_latest.csv?token=GHSAT0AAAAAABRDVE5JKVC7HIK5YHGDDQIQYUH3FMA';
+const dataUrl =
+  'https://raw.githubusercontent.com/larsvers/one-chart-module-base/main/data/c02_covid_impacts_latest.csv?token=GHSAT0AAAAAABRDVE5JKVC7HIK5YHGDDQIQYUH3FMA';
+
 const apiKey = 'ibeisDkN0WvNvxeSbWLz0PKTAHPCksrufizuWLMUC6U-UlH2PekIv0jeq8yZUkhU';
+
 const info = {
-  container: '#container',
+  container: '#chart-container',
   base_chart: '10068155',
   country: 'ZAF', // not doing anything yet
   template: '@flourish/line-bar-pie',
@@ -32,8 +34,6 @@ async function getBaseChartConfig(id) {
       console.warn('You probably need a published base chart');
     });
 
-  console.log(baseConfig);
-
   return baseConfig;
 }
 
@@ -44,7 +44,6 @@ function mutateOptions() {
 async function buildAPIChart(info, chartData) {
   // Compose the API options.
   const config = await getBaseChartConfig(info.base_chart);
-  console.log(config);
 
   const base = {
     template: config.template,
@@ -94,7 +93,7 @@ async function buildAPIChart(info, chartData) {
 }
 
 function ready(data) {
-  console.log(data);
+  // console.log(data);
   buildAPIChart(info, data);
 }
 
