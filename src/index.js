@@ -1,3 +1,9 @@
+import { autoType } from 'd3-dsv';
+import { csv, json } from 'd3-fetch';
+import { timeFormat } from 'd3-time-format';
+import Flourish from '@flourish/live-api';
+import cloneDeep from 'lodash.clonedeep';
+
 // const dataUrl = '../data/c02_covid_impacts_latest.csv';
 // Or use GH URL:
 const dataUrl =
@@ -25,8 +31,7 @@ const info = {
 
 async function getBaseChartConfig(id) {
   let baseConfig;
-  await d3
-    .json(`https://public.flourish.studio/visualisation/${id}/visualisation.json`)
+  await json(`https://public.flourish.studio/visualisation/${id}/visualisation.json`)
     .then(res => {
       baseConfig = res;
     })
@@ -54,7 +59,7 @@ async function buildAPIChart(info, chartData) {
   };
 
   const state = {
-    state: _.cloneDeep(config.state),
+    state: cloneDeep(config.state),
   };
 
   // Add any kind of template specific bindings config here
@@ -73,7 +78,7 @@ async function buildAPIChart(info, chartData) {
   // Add any kind of data prep here.
   const dataPrepped = chartData.map(d => ({
     ...d,
-    date: d3.timeFormat('%d %b %Y')(d.date),
+    date: timeFormat('%d %b %Y')(d.date),
     value: +d.value,
   }));
 
@@ -97,4 +102,4 @@ function ready(data) {
   buildAPIChart(info, data);
 }
 
-d3.csv(`${dataUrl}?${Math.random()}`, d3.autoType).then(ready);
+csv(`${dataUrl}?${Math.random()}`, autoType).then(ready);

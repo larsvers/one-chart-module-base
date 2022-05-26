@@ -1,0 +1,37 @@
+{
+  "name": "chart-module-base",
+  "version": "1.0.0",
+  "description": "Just a simple Flourish Live API ('the API') chart construction for the chart module. The data gets pulled in from a URL (local for now), there's an info object for configs and an api key for the API.",
+  "main": "app.js",
+  "scripts": {
+    "build": "rollup -c",
+    "watch": "rollup -c -w"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/larsvers/one-chart-module-base.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/larsvers/one-chart-module-base/issues"
+  },
+  "homepage": "https://github.com/larsvers/one-chart-module-base#readme",
+  "devDependencies": {
+    "@babel/preset-env": "^7.18.2",
+    "@rollup/plugin-babel": "^5.3.1",
+    "@rollup/plugin-commonjs": "^22.0.0",
+    "@rollup/plugin-node-resolve": "^13.3.0",
+    "rollup": "^2.74.1",
+    "rollup-plugin-terser": "^7.0.2"
+  },
+  "dependencies": {
+    "@flourish/live-api": "^4.5.0",
+    "core-js": "^3.22.7",
+    "d3-dsv": "^3.0.1",
+    "d3-fetch": "^3.0.1",
+    "d3-time-format": "^4.1.0",
+    "lodash.clonedeep": "^4.5.0"
+  }
+}
