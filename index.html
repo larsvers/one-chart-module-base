@@ -4,10 +4,23 @@
     <meta charset="utf-8" />
     <title>Main</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-    <style type="text/css"></style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@200;400;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles/style.css" />
   </head>
   <body>
+    <div id="select-ui">
+      <div id="template-selections">
+        <select name="template-id" id="template-id"></select>
+        <select name="template-version" id="template-version"></select>
+      </div>
+      <div id="binding-selections"></div>
+      <div id="setting-selections"></div>
+    </div>
     <div id="chart-container"></div>
 
     <script src="bundle/app.js"></script>
