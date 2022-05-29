@@ -3,10 +3,17 @@ body * {
   font-family: 'Source Sans Pro', sans-serif;
 }
 
+#vis-id,
 #template-selections {
   display: flex;
+  display: none;
 }
 
+#vis-id {
+  align-items: baseline;
+}
+
+#vis-id-input,
 #template-selections select {
   margin: 1rem 0.3rem;
   padding: 0.2rem 0.4rem;

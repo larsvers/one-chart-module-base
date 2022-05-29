@@ -70,7 +70,7 @@ async function buildAPIChart(info, chartData) {
   const apiOptions = { ...base, ...state, ...bindings, ...data };
 
   const visual = new Flourish.Live(apiOptions);
-  console.log(visual);
+  // console.log(visual);
 }
 
 export { buildAPIChart };

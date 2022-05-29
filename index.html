@@ -14,7 +14,15 @@
   </head>
   <body>
     <div id="select-ui">
-      <div id="template-selections">
+      <div id="option-path">
+        <button id="base-chart" data-option="base_chart">Base Chart</button>
+        <button id="empty-chart" data-option="empty_chart">Empty Chart</button>
+      </div>
+      <div id="vis-id" class="ui">
+        <input type="text" name="vis-id-input" id="vis-id-input" />
+        <label for="vis-id-input">Please enter the Flourish vis ID</label>
+      </div>
+      <div id="template-selections" class="ui">
         <select name="template-id" id="template-id"></select>
         <select name="template-version" id="template-version"></select>
       </div>
