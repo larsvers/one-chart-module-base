@@ -3,6 +3,7 @@ import { group } from 'd3-array';
 import { csv, json } from 'd3-fetch';
 import { select, selectAll } from 'd3-selection';
 import cloneDeep from 'lodash.clonedeep';
+import set from 'lodash.set';
 import { apiKey, dispatch } from './state.js';
 
 // Globals.
@@ -31,6 +32,7 @@ async function sendVisJsonRequest(visId) {
 }
 
 // Convert binding names to indeces and vice versa.
+// TODO we don't really need the `to_index` version anymore...
 function getBindingNames(bindings, data) {
   // The column names in an array.
   const colNames = data[0];
@@ -104,19 +106,6 @@ function getObjectBindings(bindingObject, dataArray, direction) {
   return objectBindings;
 }
 
-// Takes an array of objects and returns an object nested by a specific key
-function groupArrayToObjectByKey(array, key) {
-  const object = {};
-  for (let i = 0; i < array.length; i++) {
-    if (i === 0 || array[i][key] !== array[i - 1][key]) {
-      object[array[i][key]] = {};
-    }
-    object[array[i][key]] = { ...object[array[i][key]], ...array[i] };
-    delete object[array[i][key]][key];
-  }
-  return object;
-}
-
 // Build.
 function buildBindingsUi(bindings, bindingsGiven) {
   const bindingsClean = bindings.filter(d => typeof d !== 'string');
@@ -130,6 +119,19 @@ function buildBindingsUi(bindings, bindingsGiven) {
     .attr('class', 'dataset')
     .attr('id', d => d[0])
     .html(d => d[0][0].toUpperCase() + d[0].substring(1));
+
+  // Add a data URL input.
+  const dataUrl = datasets.append('div').attr('class', 'data-url');
+
+  dataUrl
+    .append('input')
+    .attr('name', d => `data-url-input-${d[0]}`)
+    .attr('id', d => `data-url-input-${d[0]}`);
+
+  dataUrl
+    .append('label')
+    .attr('for', d => `data-url-input-${d[0]}`)
+    .html(`Data URL (optional | taken from visualisation if empty)`);
 
   // Build an input wrapper for each binding.
   const bindingElements = datasets
@@ -232,45 +234,40 @@ async function handleSubmit() {
     container: '#chart-container', // ultimately needs to come from WP module
   };
 
-  // Get data
-  const dataUrl = select('#data-url-input').node().value;
-  let dataset;
-  if (dataUrl) {
-    // Data comes in as array of objects but we'll
-    // convert it to array of arrays to be consistent
-    const dataArrayOfObjects = await csv(dataUrl);
-    const dataArrayOfArrays = convertToArrayOfArrays(dataArrayOfObjects);
-    dataset = { data: dataArrayOfArrays };
-  } else {
-    dataset = visJsonOptions.data;
+  // Get data.
+  const dataInputs = selectAll('.data-url input').nodes();
+  const datasets = { data: {} };
+  for (const input of dataInputs) {
+    const dataset = select(input).datum()[0];
+    const url = input.value;
+    const data = url ? convertToArrayOfArrays(await csv(url)) : visJsonOptions.data[dataset];
+    datasets.data[dataset] = data;
   }
 
-  const datakeys = dataset.data[0];
-
   // Get bindings
-  const userBindingsArray = [];
+  const userBindings = { bindings: {} };
   selectAll('.binding input').each(function (d) {
+    // Columns of the respective dataset.
+    const dataColumns = datasets.data[d.dataset][0];
     // Only push bindings with values.
     if (this.value) {
-      userBindingsArray.push({
-        dataset: d.dataset,
-        [d.key]: setColumnType(d.type, this.value, datakeys),
-      });
+      // https://lodash.com/docs/4.17.15#set
+      set(
+        userBindings.bindings,
+        [d.dataset, d.key],
+        setColumnType(d.type, this.value, dataColumns)
+      );
     }
   });
-
-  const userBindings = groupArrayToObjectByKey(userBindingsArray, 'dataset');
 
   // Get settings
   const state = cloneDeep(visJsonOptions.state);
 
-  dispatch.call('blurb', this, {
+  // Dispatch data
+  dispatch.call('apidata', this, {
     base,
-    // TODO the dataset has a specific name
-    // Should be straight forward if hauled in through the vis.json
-    // But would need to be user mapped to the right data set if uploaded.
-    data: { data: dataset },
-    bindings: { bindings: userBindings },
+    data: { ...datasets },
+    bindings: { ...userBindings },
     state: { state },
   });
 }

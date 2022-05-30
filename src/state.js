@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */
 import { dispatch as d3_dispatch } from 'd3-dispatch';
 
-const dispatch = d3_dispatch('blurb');
+const dispatch = d3_dispatch('apidata');
 
 const dataUrl =
   'https://raw.githubusercontent.com/larsvers/one-chart-module-base/option-select-ui/data/c02_covid_impacts_latest.csv';

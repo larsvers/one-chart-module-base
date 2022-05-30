@@ -1,228 +1,6 @@
 (function () {
   'use strict';
 
-  var EOL = {},
-      EOF = {},
-      QUOTE = 34,
-      NEWLINE = 10,
-      RETURN = 13;
-
-  function objectConverter(columns) {
-    return new Function("d", "return {" + columns.map(function(name, i) {
-      return JSON.stringify(name) + ": d[" + i + "] || \"\"";
-    }).join(",") + "}");
-  }
-
-  function customConverter(columns, f) {
-    var object = objectConverter(columns);
-    return function(row, i) {
-      return f(object(row), i, columns);
-    };
-  }
-
-  // Compute unique columns in order of discovery.
-  function inferColumns(rows) {
-    var columnSet = Object.create(null),
-        columns = [];
-
-    rows.forEach(function(row) {
-      for (var column in row) {
-        if (!(column in columnSet)) {
-          columns.push(columnSet[column] = column);
-        }
-      }
-    });
-
-    return columns;
-  }
-
-  function pad$1(value, width) {
-    var s = value + "", length = s.length;
-    return length < width ? new Array(width - length + 1).join(0) + s : s;
-  }
-
-  function formatYear$1(year) {
-    return year < 0 ? "-" + pad$1(-year, 6)
-      : year > 9999 ? "+" + pad$1(year, 6)
-      : pad$1(year, 4);
-  }
-
-  function formatDate(date) {
-    var hours = date.getUTCHours(),
-        minutes = date.getUTCMinutes(),
-        seconds = date.getUTCSeconds(),
-        milliseconds = date.getUTCMilliseconds();
-    return isNaN(date) ? "Invalid Date"
-        : formatYear$1(date.getUTCFullYear()) + "-" + pad$1(date.getUTCMonth() + 1, 2) + "-" + pad$1(date.getUTCDate(), 2)
-        + (milliseconds ? "T" + pad$1(hours, 2) + ":" + pad$1(minutes, 2) + ":" + pad$1(seconds, 2) + "." + pad$1(milliseconds, 3) + "Z"
-        : seconds ? "T" + pad$1(hours, 2) + ":" + pad$1(minutes, 2) + ":" + pad$1(seconds, 2) + "Z"
-        : minutes || hours ? "T" + pad$1(hours, 2) + ":" + pad$1(minutes, 2) + "Z"
-        : "");
-  }
-
-  function dsvFormat(delimiter) {
-    var reFormat = new RegExp("[\"" + delimiter + "\n\r]"),
-        DELIMITER = delimiter.charCodeAt(0);
-
-    function parse(text, f) {
-      var convert, columns, rows = parseRows(text, function(row, i) {
-        if (convert) return convert(row, i - 1);
-        columns = row, convert = f ? customConverter(row, f) : objectConverter(row);
-      });
-      rows.columns = columns || [];
-      return rows;
-    }
-
-    function parseRows(text, f) {
-      var rows = [], // output rows
-          N = text.length,
-          I = 0, // current character index
-          n = 0, // current line number
-          t, // current token
-          eof = N <= 0, // current token followed by EOF?
-          eol = false; // current token followed by EOL?
-
-      // Strip the trailing newline.
-      if (text.charCodeAt(N - 1) === NEWLINE) --N;
-      if (text.charCodeAt(N - 1) === RETURN) --N;
-
-      function token() {
-        if (eof) return EOF;
-        if (eol) return eol = false, EOL;
-
-        // Unescape quotes.
-        var i, j = I, c;
-        if (text.charCodeAt(j) === QUOTE) {
-          while (I++ < N && text.charCodeAt(I) !== QUOTE || text.charCodeAt(++I) === QUOTE);
-          if ((i = I) >= N) eof = true;
-          else if ((c = text.charCodeAt(I++)) === NEWLINE) eol = true;
-          else if (c === RETURN) { eol = true; if (text.charCodeAt(I) === NEWLINE) ++I; }
-          return text.slice(j + 1, i - 1).replace(/""/g, "\"");
-        }
-
-        // Find next delimiter or newline.
-        while (I < N) {
-          if ((c = text.charCodeAt(i = I++)) === NEWLINE) eol = true;
-          else if (c === RETURN) { eol = true; if (text.charCodeAt(I) === NEWLINE) ++I; }
-          else if (c !== DELIMITER) continue;
-          return text.slice(j, i);
-        }
-
-        // Return last token before EOF.
-        return eof = true, text.slice(j, N);
-      }
-
-      while ((t = token()) !== EOF) {
-        var row = [];
-        while (t !== EOL && t !== EOF) row.push(t), t = token();
-        if (f && (row = f(row, n++)) == null) continue;
-        rows.push(row);
-      }
-
-      return rows;
-    }
-
-    function preformatBody(rows, columns) {
-      return rows.map(function(row) {
-        return columns.map(function(column) {
-          return formatValue(row[column]);
-        }).join(delimiter);
-      });
-    }
-
-    function format(rows, columns) {
-      if (columns == null) columns = inferColumns(rows);
-      return [columns.map(formatValue).join(delimiter)].concat(preformatBody(rows, columns)).join("\n");
-    }
-
-    function formatBody(rows, columns) {
-      if (columns == null) columns = inferColumns(rows);
-      return preformatBody(rows, columns).join("\n");
-    }
-
-    function formatRows(rows) {
-      return rows.map(formatRow).join("\n");
-    }
-
-    function formatRow(row) {
-      return row.map(formatValue).join(delimiter);
-    }
-
-    function formatValue(value) {
-      return value == null ? ""
-          : value instanceof Date ? formatDate(value)
-          : reFormat.test(value += "") ? "\"" + value.replace(/"/g, "\"\"") + "\""
-          : value;
-    }
-
-    return {
-      parse: parse,
-      parseRows: parseRows,
-      format: format,
-      formatBody: formatBody,
-      formatRows: formatRows,
-      formatRow: formatRow,
-      formatValue: formatValue
-    };
-  }
-
-  var csv$1 = dsvFormat(",");
-
-  var csvParse = csv$1.parse;
-
-  dsvFormat("\t");
-
-  function autoType(object) {
-    for (var key in object) {
-      var value = object[key].trim(), number, m;
-      if (!value) value = null;
-      else if (value === "true") value = true;
-      else if (value === "false") value = false;
-      else if (value === "NaN") value = NaN;
-      else if (!isNaN(number = +value)) value = number;
-      else if (m = value.match(/^([-+]\d{2})?\d{4}(-\d{2}(-\d{2})?)?(T\d{2}:\d{2}(:\d{2}(\.\d{3})?)?(Z|[-+]\d{2}:\d{2})?)?$/)) {
-        if (fixtz && !!m[4] && !m[7]) value = value.replace(/-/g, "/").replace(/T/, " ");
-        value = new Date(value);
-      }
-      else continue;
-      object[key] = value;
-    }
-    return object;
-  }
-
-  // https://github.com/d3/d3-dsv/issues/45
-  const fixtz = new Date("2019-01-01T00:00").getHours() || new Date("2019-07-01T00:00").getHours();
-
-  function responseText(response) {
-    if (!response.ok) throw new Error(response.status + " " + response.statusText);
-    return response.text();
-  }
-
-  function text(input, init) {
-    return fetch(input, init).then(responseText);
-  }
-
-  function dsvParse(parse) {
-    return function(input, init, row) {
-      if (arguments.length === 2 && typeof init === "function") row = init, init = undefined;
-      return text(input, init).then(function(response) {
-        return parse(response, row);
-      });
-    };
-  }
-
-  var csv = dsvParse(csvParse);
-
-  function responseJson(response) {
-    if (!response.ok) throw new Error(response.status + " " + response.statusText);
-    if (response.status === 204 || response.status === 205) return;
-    return response.json();
-  }
-
-  function json(input, init) {
-    return fetch(input, init).then(responseJson);
-  }
-
   var noop = {value: () => {}};
 
   function dispatch$1() {
@@ -265,8 +43,8 @@
       // Otherwise, if a null callback was specified, remove callbacks of the given name.
       if (callback != null && typeof callback !== "function") throw new Error("invalid callback: " + callback);
       while (++i < n) {
-        if (t = (typename = T[i]).type) _[t] = set(_[t], typename.name, callback);
-        else if (callback == null) for (t in _) _[t] = set(_[t], typename.name, null);
+        if (t = (typename = T[i]).type) _[t] = set$1(_[t], typename.name, callback);
+        else if (callback == null) for (t in _) _[t] = set$1(_[t], typename.name, null);
       }
 
       return this;
@@ -295,7 +73,7 @@
     }
   }
 
-  function set(type, name, callback) {
+  function set$1(type, name, callback) {
     for (var i = 0, n = type.length; i < n; ++i) {
       if (type[i].name === name) {
         type[i] = noop, type = type.slice(0, i).concat(type.slice(i + 1));
@@ -308,10 +86,7 @@
 
   /* eslint-disable camelcase */
 
-  const dispatch = dispatch$1('blurb');
-
-  const dataUrl =
-    'https://raw.githubusercontent.com/larsvers/one-chart-module-base/option-select-ui/data/c02_covid_impacts_latest.csv';
+  const dispatch = dispatch$1('apidata');
 
   const apiKey = 'ibeisDkN0WvNvxeSbWLz0PKTAHPCksrufizuWLMUC6U-UlH2PekIv0jeq8yZUkhU';
 
@@ -458,6 +233,210 @@
       }
       return map(groups);
     })(values, 0);
+  }
+
+  var EOL = {},
+      EOF = {},
+      QUOTE = 34,
+      NEWLINE = 10,
+      RETURN = 13;
+
+  function objectConverter(columns) {
+    return new Function("d", "return {" + columns.map(function(name, i) {
+      return JSON.stringify(name) + ": d[" + i + "] || \"\"";
+    }).join(",") + "}");
+  }
+
+  function customConverter(columns, f) {
+    var object = objectConverter(columns);
+    return function(row, i) {
+      return f(object(row), i, columns);
+    };
+  }
+
+  // Compute unique columns in order of discovery.
+  function inferColumns(rows) {
+    var columnSet = Object.create(null),
+        columns = [];
+
+    rows.forEach(function(row) {
+      for (var column in row) {
+        if (!(column in columnSet)) {
+          columns.push(columnSet[column] = column);
+        }
+      }
+    });
+
+    return columns;
+  }
+
+  function pad(value, width) {
+    var s = value + "", length = s.length;
+    return length < width ? new Array(width - length + 1).join(0) + s : s;
+  }
+
+  function formatYear(year) {
+    return year < 0 ? "-" + pad(-year, 6)
+      : year > 9999 ? "+" + pad(year, 6)
+      : pad(year, 4);
+  }
+
+  function formatDate(date) {
+    var hours = date.getUTCHours(),
+        minutes = date.getUTCMinutes(),
+        seconds = date.getUTCSeconds(),
+        milliseconds = date.getUTCMilliseconds();
+    return isNaN(date) ? "Invalid Date"
+        : formatYear(date.getUTCFullYear()) + "-" + pad(date.getUTCMonth() + 1, 2) + "-" + pad(date.getUTCDate(), 2)
+        + (milliseconds ? "T" + pad(hours, 2) + ":" + pad(minutes, 2) + ":" + pad(seconds, 2) + "." + pad(milliseconds, 3) + "Z"
+        : seconds ? "T" + pad(hours, 2) + ":" + pad(minutes, 2) + ":" + pad(seconds, 2) + "Z"
+        : minutes || hours ? "T" + pad(hours, 2) + ":" + pad(minutes, 2) + "Z"
+        : "");
+  }
+
+  function dsvFormat(delimiter) {
+    var reFormat = new RegExp("[\"" + delimiter + "\n\r]"),
+        DELIMITER = delimiter.charCodeAt(0);
+
+    function parse(text, f) {
+      var convert, columns, rows = parseRows(text, function(row, i) {
+        if (convert) return convert(row, i - 1);
+        columns = row, convert = f ? customConverter(row, f) : objectConverter(row);
+      });
+      rows.columns = columns || [];
+      return rows;
+    }
+
+    function parseRows(text, f) {
+      var rows = [], // output rows
+          N = text.length,
+          I = 0, // current character index
+          n = 0, // current line number
+          t, // current token
+          eof = N <= 0, // current token followed by EOF?
+          eol = false; // current token followed by EOL?
+
+      // Strip the trailing newline.
+      if (text.charCodeAt(N - 1) === NEWLINE) --N;
+      if (text.charCodeAt(N - 1) === RETURN) --N;
+
+      function token() {
+        if (eof) return EOF;
+        if (eol) return eol = false, EOL;
+
+        // Unescape quotes.
+        var i, j = I, c;
+        if (text.charCodeAt(j) === QUOTE) {
+          while (I++ < N && text.charCodeAt(I) !== QUOTE || text.charCodeAt(++I) === QUOTE);
+          if ((i = I) >= N) eof = true;
+          else if ((c = text.charCodeAt(I++)) === NEWLINE) eol = true;
+          else if (c === RETURN) { eol = true; if (text.charCodeAt(I) === NEWLINE) ++I; }
+          return text.slice(j + 1, i - 1).replace(/""/g, "\"");
+        }
+
+        // Find next delimiter or newline.
+        while (I < N) {
+          if ((c = text.charCodeAt(i = I++)) === NEWLINE) eol = true;
+          else if (c === RETURN) { eol = true; if (text.charCodeAt(I) === NEWLINE) ++I; }
+          else if (c !== DELIMITER) continue;
+          return text.slice(j, i);
+        }
+
+        // Return last token before EOF.
+        return eof = true, text.slice(j, N);
+      }
+
+      while ((t = token()) !== EOF) {
+        var row = [];
+        while (t !== EOL && t !== EOF) row.push(t), t = token();
+        if (f && (row = f(row, n++)) == null) continue;
+        rows.push(row);
+      }
+
+      return rows;
+    }
+
+    function preformatBody(rows, columns) {
+      return rows.map(function(row) {
+        return columns.map(function(column) {
+          return formatValue(row[column]);
+        }).join(delimiter);
+      });
+    }
+
+    function format(rows, columns) {
+      if (columns == null) columns = inferColumns(rows);
+      return [columns.map(formatValue).join(delimiter)].concat(preformatBody(rows, columns)).join("\n");
+    }
+
+    function formatBody(rows, columns) {
+      if (columns == null) columns = inferColumns(rows);
+      return preformatBody(rows, columns).join("\n");
+    }
+
+    function formatRows(rows) {
+      return rows.map(formatRow).join("\n");
+    }
+
+    function formatRow(row) {
+      return row.map(formatValue).join(delimiter);
+    }
+
+    function formatValue(value) {
+      return value == null ? ""
+          : value instanceof Date ? formatDate(value)
+          : reFormat.test(value += "") ? "\"" + value.replace(/"/g, "\"\"") + "\""
+          : value;
+    }
+
+    return {
+      parse: parse,
+      parseRows: parseRows,
+      format: format,
+      formatBody: formatBody,
+      formatRows: formatRows,
+      formatRow: formatRow,
+      formatValue: formatValue
+    };
+  }
+
+  var csv$1 = dsvFormat(",");
+
+  var csvParse = csv$1.parse;
+
+  dsvFormat("\t");
+
+  // https://github.com/d3/d3-dsv/issues/45
+  new Date("2019-01-01T00:00").getHours() || new Date("2019-07-01T00:00").getHours();
+
+  function responseText(response) {
+    if (!response.ok) throw new Error(response.status + " " + response.statusText);
+    return response.text();
+  }
+
+  function text(input, init) {
+    return fetch(input, init).then(responseText);
+  }
+
+  function dsvParse(parse) {
+    return function(input, init, row) {
+      if (arguments.length === 2 && typeof init === "function") row = init, init = undefined;
+      return text(input, init).then(function(response) {
+        return parse(response, row);
+      });
+    };
+  }
+
+  var csv = dsvParse(csvParse);
+
+  function responseJson(response) {
+    if (!response.ok) throw new Error(response.status + " " + response.statusText);
+    if (response.status === 204 || response.status === 205) return;
+    return response.json();
+  }
+
+  function json(input, init) {
+    return fetch(input, init).then(responseJson);
   }
 
   var xhtml = "http://www.w3.org/1999/xhtml";
@@ -1324,7 +1303,7 @@
     }
   }
 
-  var root = [null];
+  var root$1 = [null];
 
   function Selection(groups, parents) {
     this._groups = groups;
@@ -1377,7 +1356,7 @@
   function select(selector) {
     return typeof selector === "string"
         ? new Selection([[document.querySelector(selector)]], [document.documentElement])
-        : new Selection([[selector]], root);
+        : new Selection([[selector]], root$1);
   }
 
   var nextId = 0;
@@ -1407,7 +1386,7 @@
   function selectAll(selector) {
     return typeof selector === "string"
         ? new Selection([document.querySelectorAll(selector)], [document.documentElement])
-        : new Selection([array(selector)], root);
+        : new Selection([array(selector)], root$1);
   }
 
   var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
@@ -3167,6 +3146,997 @@
 
   var cloneDeep = lodash_clonedeep.exports;
 
+  /**
+   * lodash (Custom Build) <https://lodash.com/>
+   * Build: `lodash modularize exports="npm" -o ./`
+   * Copyright jQuery Foundation and other contributors <https://jquery.org/>
+   * Released under MIT license <https://lodash.com/license>
+   * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+   * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+   */
+
+  /** Used as the `TypeError` message for "Functions" methods. */
+  var FUNC_ERROR_TEXT = 'Expected a function';
+
+  /** Used to stand-in for `undefined` hash values. */
+  var HASH_UNDEFINED = '__lodash_hash_undefined__';
+
+  /** Used as references for various `Number` constants. */
+  var INFINITY = 1 / 0,
+      MAX_SAFE_INTEGER = 9007199254740991;
+
+  /** `Object#toString` result references. */
+  var funcTag = '[object Function]',
+      genTag = '[object GeneratorFunction]',
+      symbolTag = '[object Symbol]';
+
+  /** Used to match property names within property paths. */
+  var reIsDeepProp = /\.|\[(?:[^[\]]*|(["'])(?:(?!\1)[^\\]|\\.)*?\1)\]/,
+      reIsPlainProp = /^\w*$/,
+      reLeadingDot = /^\./,
+      rePropName = /[^.[\]]+|\[(?:(-?\d+(?:\.\d+)?)|(["'])((?:(?!\2)[^\\]|\\.)*?)\2)\]|(?=(?:\.|\[\])(?:\.|\[\]|$))/g;
+
+  /**
+   * Used to match `RegExp`
+   * [syntax characters](http://ecma-international.org/ecma-262/7.0/#sec-patterns).
+   */
+  var reRegExpChar = /[\\^$.*+?()[\]{}|]/g;
+
+  /** Used to match backslashes in property paths. */
+  var reEscapeChar = /\\(\\)?/g;
+
+  /** Used to detect host constructors (Safari). */
+  var reIsHostCtor = /^\[object .+?Constructor\]$/;
+
+  /** Used to detect unsigned integer values. */
+  var reIsUint = /^(?:0|[1-9]\d*)$/;
+
+  /** Detect free variable `global` from Node.js. */
+  var freeGlobal = typeof commonjsGlobal == 'object' && commonjsGlobal && commonjsGlobal.Object === Object && commonjsGlobal;
+
+  /** Detect free variable `self`. */
+  var freeSelf = typeof self == 'object' && self && self.Object === Object && self;
+
+  /** Used as a reference to the global object. */
+  var root = freeGlobal || freeSelf || Function('return this')();
+
+  /**
+   * Gets the value at `key` of `object`.
+   *
+   * @private
+   * @param {Object} [object] The object to query.
+   * @param {string} key The key of the property to get.
+   * @returns {*} Returns the property value.
+   */
+  function getValue(object, key) {
+    return object == null ? undefined : object[key];
+  }
+
+  /**
+   * Checks if `value` is a host object in IE < 9.
+   *
+   * @private
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is a host object, else `false`.
+   */
+  function isHostObject(value) {
+    // Many host objects are `Object` objects that can coerce to strings
+    // despite having improperly defined `toString` methods.
+    var result = false;
+    if (value != null && typeof value.toString != 'function') {
+      try {
+        result = !!(value + '');
+      } catch (e) {}
+    }
+    return result;
+  }
+
+  /** Used for built-in method references. */
+  var arrayProto = Array.prototype,
+      funcProto = Function.prototype,
+      objectProto = Object.prototype;
+
+  /** Used to detect overreaching core-js shims. */
+  var coreJsData = root['__core-js_shared__'];
+
+  /** Used to detect methods masquerading as native. */
+  var maskSrcKey = (function() {
+    var uid = /[^.]+$/.exec(coreJsData && coreJsData.keys && coreJsData.keys.IE_PROTO || '');
+    return uid ? ('Symbol(src)_1.' + uid) : '';
+  }());
+
+  /** Used to resolve the decompiled source of functions. */
+  var funcToString = funcProto.toString;
+
+  /** Used to check objects for own properties. */
+  var hasOwnProperty = objectProto.hasOwnProperty;
+
+  /**
+   * Used to resolve the
+   * [`toStringTag`](http://ecma-international.org/ecma-262/7.0/#sec-object.prototype.tostring)
+   * of values.
+   */
+  var objectToString = objectProto.toString;
+
+  /** Used to detect if a method is native. */
+  var reIsNative = RegExp('^' +
+    funcToString.call(hasOwnProperty).replace(reRegExpChar, '\\$&')
+    .replace(/hasOwnProperty|(function).*?(?=\\\()| for .+?(?=\\\])/g, '$1.*?') + '$'
+  );
+
+  /** Built-in value references. */
+  var Symbol$1 = root.Symbol,
+      splice = arrayProto.splice;
+
+  /* Built-in method references that are verified to be native. */
+  var Map$1 = getNative(root, 'Map'),
+      nativeCreate = getNative(Object, 'create');
+
+  /** Used to convert symbols to primitives and strings. */
+  var symbolProto = Symbol$1 ? Symbol$1.prototype : undefined,
+      symbolToString = symbolProto ? symbolProto.toString : undefined;
+
+  /**
+   * Creates a hash object.
+   *
+   * @private
+   * @constructor
+   * @param {Array} [entries] The key-value pairs to cache.
+   */
+  function Hash(entries) {
+    var index = -1,
+        length = entries ? entries.length : 0;
+
+    this.clear();
+    while (++index < length) {
+      var entry = entries[index];
+      this.set(entry[0], entry[1]);
+    }
+  }
+
+  /**
+   * Removes all key-value entries from the hash.
+   *
+   * @private
+   * @name clear
+   * @memberOf Hash
+   */
+  function hashClear() {
+    this.__data__ = nativeCreate ? nativeCreate(null) : {};
+  }
+
+  /**
+   * Removes `key` and its value from the hash.
+   *
+   * @private
+   * @name delete
+   * @memberOf Hash
+   * @param {Object} hash The hash to modify.
+   * @param {string} key The key of the value to remove.
+   * @returns {boolean} Returns `true` if the entry was removed, else `false`.
+   */
+  function hashDelete(key) {
+    return this.has(key) && delete this.__data__[key];
+  }
+
+  /**
+   * Gets the hash value for `key`.
+   *
+   * @private
+   * @name get
+   * @memberOf Hash
+   * @param {string} key The key of the value to get.
+   * @returns {*} Returns the entry value.
+   */
+  function hashGet(key) {
+    var data = this.__data__;
+    if (nativeCreate) {
+      var result = data[key];
+      return result === HASH_UNDEFINED ? undefined : result;
+    }
+    return hasOwnProperty.call(data, key) ? data[key] : undefined;
+  }
+
+  /**
+   * Checks if a hash value for `key` exists.
+   *
+   * @private
+   * @name has
+   * @memberOf Hash
+   * @param {string} key The key of the entry to check.
+   * @returns {boolean} Returns `true` if an entry for `key` exists, else `false`.
+   */
+  function hashHas(key) {
+    var data = this.__data__;
+    return nativeCreate ? data[key] !== undefined : hasOwnProperty.call(data, key);
+  }
+
+  /**
+   * Sets the hash `key` to `value`.
+   *
+   * @private
+   * @name set
+   * @memberOf Hash
+   * @param {string} key The key of the value to set.
+   * @param {*} value The value to set.
+   * @returns {Object} Returns the hash instance.
+   */
+  function hashSet(key, value) {
+    var data = this.__data__;
+    data[key] = (nativeCreate && value === undefined) ? HASH_UNDEFINED : value;
+    return this;
+  }
+
+  // Add methods to `Hash`.
+  Hash.prototype.clear = hashClear;
+  Hash.prototype['delete'] = hashDelete;
+  Hash.prototype.get = hashGet;
+  Hash.prototype.has = hashHas;
+  Hash.prototype.set = hashSet;
+
+  /**
+   * Creates an list cache object.
+   *
+   * @private
+   * @constructor
+   * @param {Array} [entries] The key-value pairs to cache.
+   */
+  function ListCache(entries) {
+    var index = -1,
+        length = entries ? entries.length : 0;
+
+    this.clear();
+    while (++index < length) {
+      var entry = entries[index];
+      this.set(entry[0], entry[1]);
+    }
+  }
+
+  /**
+   * Removes all key-value entries from the list cache.
+   *
+   * @private
+   * @name clear
+   * @memberOf ListCache
+   */
+  function listCacheClear() {
+    this.__data__ = [];
+  }
+
+  /**
+   * Removes `key` and its value from the list cache.
+   *
+   * @private
+   * @name delete
+   * @memberOf ListCache
+   * @param {string} key The key of the value to remove.
+   * @returns {boolean} Returns `true` if the entry was removed, else `false`.
+   */
+  function listCacheDelete(key) {
+    var data = this.__data__,
+        index = assocIndexOf(data, key);
+
+    if (index < 0) {
+      return false;
+    }
+    var lastIndex = data.length - 1;
+    if (index == lastIndex) {
+      data.pop();
+    } else {
+      splice.call(data, index, 1);
+    }
+    return true;
+  }
+
+  /**
+   * Gets the list cache value for `key`.
+   *
+   * @private
+   * @name get
+   * @memberOf ListCache
+   * @param {string} key The key of the value to get.
+   * @returns {*} Returns the entry value.
+   */
+  function listCacheGet(key) {
+    var data = this.__data__,
+        index = assocIndexOf(data, key);
+
+    return index < 0 ? undefined : data[index][1];
+  }
+
+  /**
+   * Checks if a list cache value for `key` exists.
+   *
+   * @private
+   * @name has
+   * @memberOf ListCache
+   * @param {string} key The key of the entry to check.
+   * @returns {boolean} Returns `true` if an entry for `key` exists, else `false`.
+   */
+  function listCacheHas(key) {
+    return assocIndexOf(this.__data__, key) > -1;
+  }
+
+  /**
+   * Sets the list cache `key` to `value`.
+   *
+   * @private
+   * @name set
+   * @memberOf ListCache
+   * @param {string} key The key of the value to set.
+   * @param {*} value The value to set.
+   * @returns {Object} Returns the list cache instance.
+   */
+  function listCacheSet(key, value) {
+    var data = this.__data__,
+        index = assocIndexOf(data, key);
+
+    if (index < 0) {
+      data.push([key, value]);
+    } else {
+      data[index][1] = value;
+    }
+    return this;
+  }
+
+  // Add methods to `ListCache`.
+  ListCache.prototype.clear = listCacheClear;
+  ListCache.prototype['delete'] = listCacheDelete;
+  ListCache.prototype.get = listCacheGet;
+  ListCache.prototype.has = listCacheHas;
+  ListCache.prototype.set = listCacheSet;
+
+  /**
+   * Creates a map cache object to store key-value pairs.
+   *
+   * @private
+   * @constructor
+   * @param {Array} [entries] The key-value pairs to cache.
+   */
+  function MapCache(entries) {
+    var index = -1,
+        length = entries ? entries.length : 0;
+
+    this.clear();
+    while (++index < length) {
+      var entry = entries[index];
+      this.set(entry[0], entry[1]);
+    }
+  }
+
+  /**
+   * Removes all key-value entries from the map.
+   *
+   * @private
+   * @name clear
+   * @memberOf MapCache
+   */
+  function mapCacheClear() {
+    this.__data__ = {
+      'hash': new Hash,
+      'map': new (Map$1 || ListCache),
+      'string': new Hash
+    };
+  }
+
+  /**
+   * Removes `key` and its value from the map.
+   *
+   * @private
+   * @name delete
+   * @memberOf MapCache
+   * @param {string} key The key of the value to remove.
+   * @returns {boolean} Returns `true` if the entry was removed, else `false`.
+   */
+  function mapCacheDelete(key) {
+    return getMapData(this, key)['delete'](key);
+  }
+
+  /**
+   * Gets the map value for `key`.
+   *
+   * @private
+   * @name get
+   * @memberOf MapCache
+   * @param {string} key The key of the value to get.
+   * @returns {*} Returns the entry value.
+   */
+  function mapCacheGet(key) {
+    return getMapData(this, key).get(key);
+  }
+
+  /**
+   * Checks if a map value for `key` exists.
+   *
+   * @private
+   * @name has
+   * @memberOf MapCache
+   * @param {string} key The key of the entry to check.
+   * @returns {boolean} Returns `true` if an entry for `key` exists, else `false`.
+   */
+  function mapCacheHas(key) {
+    return getMapData(this, key).has(key);
+  }
+
+  /**
+   * Sets the map `key` to `value`.
+   *
+   * @private
+   * @name set
+   * @memberOf MapCache
+   * @param {string} key The key of the value to set.
+   * @param {*} value The value to set.
+   * @returns {Object} Returns the map cache instance.
+   */
+  function mapCacheSet(key, value) {
+    getMapData(this, key).set(key, value);
+    return this;
+  }
+
+  // Add methods to `MapCache`.
+  MapCache.prototype.clear = mapCacheClear;
+  MapCache.prototype['delete'] = mapCacheDelete;
+  MapCache.prototype.get = mapCacheGet;
+  MapCache.prototype.has = mapCacheHas;
+  MapCache.prototype.set = mapCacheSet;
+
+  /**
+   * Assigns `value` to `key` of `object` if the existing value is not equivalent
+   * using [`SameValueZero`](http://ecma-international.org/ecma-262/7.0/#sec-samevaluezero)
+   * for equality comparisons.
+   *
+   * @private
+   * @param {Object} object The object to modify.
+   * @param {string} key The key of the property to assign.
+   * @param {*} value The value to assign.
+   */
+  function assignValue(object, key, value) {
+    var objValue = object[key];
+    if (!(hasOwnProperty.call(object, key) && eq(objValue, value)) ||
+        (value === undefined && !(key in object))) {
+      object[key] = value;
+    }
+  }
+
+  /**
+   * Gets the index at which the `key` is found in `array` of key-value pairs.
+   *
+   * @private
+   * @param {Array} array The array to inspect.
+   * @param {*} key The key to search for.
+   * @returns {number} Returns the index of the matched value, else `-1`.
+   */
+  function assocIndexOf(array, key) {
+    var length = array.length;
+    while (length--) {
+      if (eq(array[length][0], key)) {
+        return length;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * The base implementation of `_.isNative` without bad shim checks.
+   *
+   * @private
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is a native function,
+   *  else `false`.
+   */
+  function baseIsNative(value) {
+    if (!isObject$1(value) || isMasked(value)) {
+      return false;
+    }
+    var pattern = (isFunction(value) || isHostObject(value)) ? reIsNative : reIsHostCtor;
+    return pattern.test(toSource(value));
+  }
+
+  /**
+   * The base implementation of `_.set`.
+   *
+   * @private
+   * @param {Object} object The object to modify.
+   * @param {Array|string} path The path of the property to set.
+   * @param {*} value The value to set.
+   * @param {Function} [customizer] The function to customize path creation.
+   * @returns {Object} Returns `object`.
+   */
+  function baseSet(object, path, value, customizer) {
+    if (!isObject$1(object)) {
+      return object;
+    }
+    path = isKey(path, object) ? [path] : castPath(path);
+
+    var index = -1,
+        length = path.length,
+        lastIndex = length - 1,
+        nested = object;
+
+    while (nested != null && ++index < length) {
+      var key = toKey(path[index]),
+          newValue = value;
+
+      if (index != lastIndex) {
+        var objValue = nested[key];
+        newValue = customizer ? customizer(objValue, key, nested) : undefined;
+        if (newValue === undefined) {
+          newValue = isObject$1(objValue)
+            ? objValue
+            : (isIndex(path[index + 1]) ? [] : {});
+        }
+      }
+      assignValue(nested, key, newValue);
+      nested = nested[key];
+    }
+    return object;
+  }
+
+  /**
+   * The base implementation of `_.toString` which doesn't convert nullish
+   * values to empty strings.
+   *
+   * @private
+   * @param {*} value The value to process.
+   * @returns {string} Returns the string.
+   */
+  function baseToString(value) {
+    // Exit early for strings to avoid a performance hit in some environments.
+    if (typeof value == 'string') {
+      return value;
+    }
+    if (isSymbol(value)) {
+      return symbolToString ? symbolToString.call(value) : '';
+    }
+    var result = (value + '');
+    return (result == '0' && (1 / value) == -INFINITY) ? '-0' : result;
+  }
+
+  /**
+   * Casts `value` to a path array if it's not one.
+   *
+   * @private
+   * @param {*} value The value to inspect.
+   * @returns {Array} Returns the cast property path array.
+   */
+  function castPath(value) {
+    return isArray(value) ? value : stringToPath(value);
+  }
+
+  /**
+   * Gets the data for `map`.
+   *
+   * @private
+   * @param {Object} map The map to query.
+   * @param {string} key The reference key.
+   * @returns {*} Returns the map data.
+   */
+  function getMapData(map, key) {
+    var data = map.__data__;
+    return isKeyable(key)
+      ? data[typeof key == 'string' ? 'string' : 'hash']
+      : data.map;
+  }
+
+  /**
+   * Gets the native function at `key` of `object`.
+   *
+   * @private
+   * @param {Object} object The object to query.
+   * @param {string} key The key of the method to get.
+   * @returns {*} Returns the function if it's native, else `undefined`.
+   */
+  function getNative(object, key) {
+    var value = getValue(object, key);
+    return baseIsNative(value) ? value : undefined;
+  }
+
+  /**
+   * Checks if `value` is a valid array-like index.
+   *
+   * @private
+   * @param {*} value The value to check.
+   * @param {number} [length=MAX_SAFE_INTEGER] The upper bounds of a valid index.
+   * @returns {boolean} Returns `true` if `value` is a valid index, else `false`.
+   */
+  function isIndex(value, length) {
+    length = length == null ? MAX_SAFE_INTEGER : length;
+    return !!length &&
+      (typeof value == 'number' || reIsUint.test(value)) &&
+      (value > -1 && value % 1 == 0 && value < length);
+  }
+
+  /**
+   * Checks if `value` is a property name and not a property path.
+   *
+   * @private
+   * @param {*} value The value to check.
+   * @param {Object} [object] The object to query keys on.
+   * @returns {boolean} Returns `true` if `value` is a property name, else `false`.
+   */
+  function isKey(value, object) {
+    if (isArray(value)) {
+      return false;
+    }
+    var type = typeof value;
+    if (type == 'number' || type == 'symbol' || type == 'boolean' ||
+        value == null || isSymbol(value)) {
+      return true;
+    }
+    return reIsPlainProp.test(value) || !reIsDeepProp.test(value) ||
+      (object != null && value in Object(object));
+  }
+
+  /**
+   * Checks if `value` is suitable for use as unique object key.
+   *
+   * @private
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is suitable, else `false`.
+   */
+  function isKeyable(value) {
+    var type = typeof value;
+    return (type == 'string' || type == 'number' || type == 'symbol' || type == 'boolean')
+      ? (value !== '__proto__')
+      : (value === null);
+  }
+
+  /**
+   * Checks if `func` has its source masked.
+   *
+   * @private
+   * @param {Function} func The function to check.
+   * @returns {boolean} Returns `true` if `func` is masked, else `false`.
+   */
+  function isMasked(func) {
+    return !!maskSrcKey && (maskSrcKey in func);
+  }
+
+  /**
+   * Converts `string` to a property path array.
+   *
+   * @private
+   * @param {string} string The string to convert.
+   * @returns {Array} Returns the property path array.
+   */
+  var stringToPath = memoize(function(string) {
+    string = toString(string);
+
+    var result = [];
+    if (reLeadingDot.test(string)) {
+      result.push('');
+    }
+    string.replace(rePropName, function(match, number, quote, string) {
+      result.push(quote ? string.replace(reEscapeChar, '$1') : (number || match));
+    });
+    return result;
+  });
+
+  /**
+   * Converts `value` to a string key if it's not a string or symbol.
+   *
+   * @private
+   * @param {*} value The value to inspect.
+   * @returns {string|symbol} Returns the key.
+   */
+  function toKey(value) {
+    if (typeof value == 'string' || isSymbol(value)) {
+      return value;
+    }
+    var result = (value + '');
+    return (result == '0' && (1 / value) == -INFINITY) ? '-0' : result;
+  }
+
+  /**
+   * Converts `func` to its source code.
+   *
+   * @private
+   * @param {Function} func The function to process.
+   * @returns {string} Returns the source code.
+   */
+  function toSource(func) {
+    if (func != null) {
+      try {
+        return funcToString.call(func);
+      } catch (e) {}
+      try {
+        return (func + '');
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  /**
+   * Creates a function that memoizes the result of `func`. If `resolver` is
+   * provided, it determines the cache key for storing the result based on the
+   * arguments provided to the memoized function. By default, the first argument
+   * provided to the memoized function is used as the map cache key. The `func`
+   * is invoked with the `this` binding of the memoized function.
+   *
+   * **Note:** The cache is exposed as the `cache` property on the memoized
+   * function. Its creation may be customized by replacing the `_.memoize.Cache`
+   * constructor with one whose instances implement the
+   * [`Map`](http://ecma-international.org/ecma-262/7.0/#sec-properties-of-the-map-prototype-object)
+   * method interface of `delete`, `get`, `has`, and `set`.
+   *
+   * @static
+   * @memberOf _
+   * @since 0.1.0
+   * @category Function
+   * @param {Function} func The function to have its output memoized.
+   * @param {Function} [resolver] The function to resolve the cache key.
+   * @returns {Function} Returns the new memoized function.
+   * @example
+   *
+   * var object = { 'a': 1, 'b': 2 };
+   * var other = { 'c': 3, 'd': 4 };
+   *
+   * var values = _.memoize(_.values);
+   * values(object);
+   * // => [1, 2]
+   *
+   * values(other);
+   * // => [3, 4]
+   *
+   * object.a = 2;
+   * values(object);
+   * // => [1, 2]
+   *
+   * // Modify the result cache.
+   * values.cache.set(object, ['a', 'b']);
+   * values(object);
+   * // => ['a', 'b']
+   *
+   * // Replace `_.memoize.Cache`.
+   * _.memoize.Cache = WeakMap;
+   */
+  function memoize(func, resolver) {
+    if (typeof func != 'function' || (resolver && typeof resolver != 'function')) {
+      throw new TypeError(FUNC_ERROR_TEXT);
+    }
+    var memoized = function() {
+      var args = arguments,
+          key = resolver ? resolver.apply(this, args) : args[0],
+          cache = memoized.cache;
+
+      if (cache.has(key)) {
+        return cache.get(key);
+      }
+      var result = func.apply(this, args);
+      memoized.cache = cache.set(key, result);
+      return result;
+    };
+    memoized.cache = new (memoize.Cache || MapCache);
+    return memoized;
+  }
+
+  // Assign cache to `_.memoize`.
+  memoize.Cache = MapCache;
+
+  /**
+   * Performs a
+   * [`SameValueZero`](http://ecma-international.org/ecma-262/7.0/#sec-samevaluezero)
+   * comparison between two values to determine if they are equivalent.
+   *
+   * @static
+   * @memberOf _
+   * @since 4.0.0
+   * @category Lang
+   * @param {*} value The value to compare.
+   * @param {*} other The other value to compare.
+   * @returns {boolean} Returns `true` if the values are equivalent, else `false`.
+   * @example
+   *
+   * var object = { 'a': 1 };
+   * var other = { 'a': 1 };
+   *
+   * _.eq(object, object);
+   * // => true
+   *
+   * _.eq(object, other);
+   * // => false
+   *
+   * _.eq('a', 'a');
+   * // => true
+   *
+   * _.eq('a', Object('a'));
+   * // => false
+   *
+   * _.eq(NaN, NaN);
+   * // => true
+   */
+  function eq(value, other) {
+    return value === other || (value !== value && other !== other);
+  }
+
+  /**
+   * Checks if `value` is classified as an `Array` object.
+   *
+   * @static
+   * @memberOf _
+   * @since 0.1.0
+   * @category Lang
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is an array, else `false`.
+   * @example
+   *
+   * _.isArray([1, 2, 3]);
+   * // => true
+   *
+   * _.isArray(document.body.children);
+   * // => false
+   *
+   * _.isArray('abc');
+   * // => false
+   *
+   * _.isArray(_.noop);
+   * // => false
+   */
+  var isArray = Array.isArray;
+
+  /**
+   * Checks if `value` is classified as a `Function` object.
+   *
+   * @static
+   * @memberOf _
+   * @since 0.1.0
+   * @category Lang
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is a function, else `false`.
+   * @example
+   *
+   * _.isFunction(_);
+   * // => true
+   *
+   * _.isFunction(/abc/);
+   * // => false
+   */
+  function isFunction(value) {
+    // The use of `Object#toString` avoids issues with the `typeof` operator
+    // in Safari 8-9 which returns 'object' for typed array and other constructors.
+    var tag = isObject$1(value) ? objectToString.call(value) : '';
+    return tag == funcTag || tag == genTag;
+  }
+
+  /**
+   * Checks if `value` is the
+   * [language type](http://www.ecma-international.org/ecma-262/7.0/#sec-ecmascript-language-types)
+   * of `Object`. (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
+   *
+   * @static
+   * @memberOf _
+   * @since 0.1.0
+   * @category Lang
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is an object, else `false`.
+   * @example
+   *
+   * _.isObject({});
+   * // => true
+   *
+   * _.isObject([1, 2, 3]);
+   * // => true
+   *
+   * _.isObject(_.noop);
+   * // => true
+   *
+   * _.isObject(null);
+   * // => false
+   */
+  function isObject$1(value) {
+    var type = typeof value;
+    return !!value && (type == 'object' || type == 'function');
+  }
+
+  /**
+   * Checks if `value` is object-like. A value is object-like if it's not `null`
+   * and has a `typeof` result of "object".
+   *
+   * @static
+   * @memberOf _
+   * @since 4.0.0
+   * @category Lang
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
+   * @example
+   *
+   * _.isObjectLike({});
+   * // => true
+   *
+   * _.isObjectLike([1, 2, 3]);
+   * // => true
+   *
+   * _.isObjectLike(_.noop);
+   * // => false
+   *
+   * _.isObjectLike(null);
+   * // => false
+   */
+  function isObjectLike(value) {
+    return !!value && typeof value == 'object';
+  }
+
+  /**
+   * Checks if `value` is classified as a `Symbol` primitive or object.
+   *
+   * @static
+   * @memberOf _
+   * @since 4.0.0
+   * @category Lang
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is a symbol, else `false`.
+   * @example
+   *
+   * _.isSymbol(Symbol.iterator);
+   * // => true
+   *
+   * _.isSymbol('abc');
+   * // => false
+   */
+  function isSymbol(value) {
+    return typeof value == 'symbol' ||
+      (isObjectLike(value) && objectToString.call(value) == symbolTag);
+  }
+
+  /**
+   * Converts `value` to a string. An empty string is returned for `null`
+   * and `undefined` values. The sign of `-0` is preserved.
+   *
+   * @static
+   * @memberOf _
+   * @since 4.0.0
+   * @category Lang
+   * @param {*} value The value to process.
+   * @returns {string} Returns the string.
+   * @example
+   *
+   * _.toString(null);
+   * // => ''
+   *
+   * _.toString(-0);
+   * // => '-0'
+   *
+   * _.toString([1, 2, 3]);
+   * // => '1,2,3'
+   */
+  function toString(value) {
+    return value == null ? '' : baseToString(value);
+  }
+
+  /**
+   * Sets the value at `path` of `object`. If a portion of `path` doesn't exist,
+   * it's created. Arrays are created for missing index properties while objects
+   * are created for all other missing properties. Use `_.setWith` to customize
+   * `path` creation.
+   *
+   * **Note:** This method mutates `object`.
+   *
+   * @static
+   * @memberOf _
+   * @since 3.7.0
+   * @category Object
+   * @param {Object} object The object to modify.
+   * @param {Array|string} path The path of the property to set.
+   * @param {*} value The value to set.
+   * @returns {Object} Returns `object`.
+   * @example
+   *
+   * var object = { 'a': [{ 'b': { 'c': 3 } }] };
+   *
+   * _.set(object, 'a[0].b.c', 4);
+   * console.log(object.a[0].b.c);
+   * // => 4
+   *
+   * _.set(object, ['x', '0', 'y', 'z'], 5);
+   * console.log(object.x[0].y.z);
+   * // => 5
+   */
+  function set(object, path, value) {
+    return object == null ? object : baseSet(object, path, value);
+  }
+
+  var lodash_set = set;
+
   /* eslint-disable no-restricted-syntax */
 
   // Globals.
@@ -3195,6 +4165,7 @@
   }
 
   // Convert binding names to indeces and vice versa.
+  // TODO we don't really need the `to_index` version anymore...
   function getBindingNames(bindings, data) {
     // The column names in an array.
     const colNames = data[0];
@@ -3268,19 +4239,6 @@
     return objectBindings;
   }
 
-  // Takes an array of objects and returns an object nested by a specific key
-  function groupArrayToObjectByKey(array, key) {
-    const object = {};
-    for (let i = 0; i < array.length; i++) {
-      if (i === 0 || array[i][key] !== array[i - 1][key]) {
-        object[array[i][key]] = {};
-      }
-      object[array[i][key]] = { ...object[array[i][key]], ...array[i] };
-      delete object[array[i][key]][key];
-    }
-    return object;
-  }
-
   // Build.
   function buildBindingsUi(bindings, bindingsGiven) {
     const bindingsClean = bindings.filter(d => typeof d !== 'string');
@@ -3294,6 +4252,19 @@
       .attr('class', 'dataset')
       .attr('id', d => d[0])
       .html(d => d[0][0].toUpperCase() + d[0].substring(1));
+
+    // Add a data URL input.
+    const dataUrl = datasets.append('div').attr('class', 'data-url');
+
+    dataUrl
+      .append('input')
+      .attr('name', d => `data-url-input-${d[0]}`)
+      .attr('id', d => `data-url-input-${d[0]}`);
+
+    dataUrl
+      .append('label')
+      .attr('for', d => `data-url-input-${d[0]}`)
+      .html(`Data URL (optional | taken from visualisation if empty)`);
 
     // Build an input wrapper for each binding.
     const bindingElements = datasets
@@ -3396,45 +4367,40 @@
       container: '#chart-container', // ultimately needs to come from WP module
     };
 
-    // Get data
-    const dataUrl = select('#data-url-input').node().value;
-    let dataset;
-    if (dataUrl) {
-      // Data comes in as array of objects but we'll
-      // convert it to array of arrays to be consistent
-      const dataArrayOfObjects = await csv(dataUrl);
-      const dataArrayOfArrays = convertToArrayOfArrays(dataArrayOfObjects);
-      dataset = { data: dataArrayOfArrays };
-    } else {
-      dataset = visJsonOptions.data;
+    // Get data.
+    const dataInputs = selectAll('.data-url input').nodes();
+    const datasets = { data: {} };
+    for (const input of dataInputs) {
+      const dataset = select(input).datum()[0];
+      const url = input.value;
+      const data = url ? convertToArrayOfArrays(await csv(url)) : visJsonOptions.data[dataset];
+      datasets.data[dataset] = data;
     }
 
-    const datakeys = dataset.data[0];
-
     // Get bindings
-    const userBindingsArray = [];
+    const userBindings = { bindings: {} };
     selectAll('.binding input').each(function (d) {
+      // Columns of the respective dataset.
+      const dataColumns = datasets.data[d.dataset][0];
       // Only push bindings with values.
       if (this.value) {
-        userBindingsArray.push({
-          dataset: d.dataset,
-          [d.key]: setColumnType(d.type, this.value, datakeys),
-        });
+        // https://lodash.com/docs/4.17.15#set
+        lodash_set(
+          userBindings.bindings,
+          [d.dataset, d.key],
+          setColumnType(d.type, this.value, dataColumns)
+        );
       }
     });
-
-    const userBindings = groupArrayToObjectByKey(userBindingsArray, 'dataset');
 
     // Get settings
     const state = cloneDeep(visJsonOptions.state);
 
-    dispatch.call('blurb', this, {
+    // Dispatch data
+    dispatch.call('apidata', this, {
       base,
-      // TODO the dataset has a specific name
-      // Should be straight forward if hauled in through the vis.json
-      // But would need to be user mapped to the right data set if uploaded.
-      data: { data: dataset },
-      bindings: { bindings: userBindings },
+      data: { ...datasets },
+      bindings: { ...userBindings },
       state: { state },
     });
   }
@@ -3477,1030 +4443,6 @@
   function buildSelectUI() {
     getPathChoice();
   }
-
-  var t0 = new Date,
-      t1 = new Date;
-
-  function newInterval(floori, offseti, count, field) {
-
-    function interval(date) {
-      return floori(date = arguments.length === 0 ? new Date : new Date(+date)), date;
-    }
-
-    interval.floor = function(date) {
-      return floori(date = new Date(+date)), date;
-    };
-
-    interval.ceil = function(date) {
-      return floori(date = new Date(date - 1)), offseti(date, 1), floori(date), date;
-    };
-
-    interval.round = function(date) {
-      var d0 = interval(date),
-          d1 = interval.ceil(date);
-      return date - d0 < d1 - date ? d0 : d1;
-    };
-
-    interval.offset = function(date, step) {
-      return offseti(date = new Date(+date), step == null ? 1 : Math.floor(step)), date;
-    };
-
-    interval.range = function(start, stop, step) {
-      var range = [], previous;
-      start = interval.ceil(start);
-      step = step == null ? 1 : Math.floor(step);
-      if (!(start < stop) || !(step > 0)) return range; // also handles Invalid Date
-      do range.push(previous = new Date(+start)), offseti(start, step), floori(start);
-      while (previous < start && start < stop);
-      return range;
-    };
-
-    interval.filter = function(test) {
-      return newInterval(function(date) {
-        if (date >= date) while (floori(date), !test(date)) date.setTime(date - 1);
-      }, function(date, step) {
-        if (date >= date) {
-          if (step < 0) while (++step <= 0) {
-            while (offseti(date, -1), !test(date)) {} // eslint-disable-line no-empty
-          } else while (--step >= 0) {
-            while (offseti(date, +1), !test(date)) {} // eslint-disable-line no-empty
-          }
-        }
-      });
-    };
-
-    if (count) {
-      interval.count = function(start, end) {
-        t0.setTime(+start), t1.setTime(+end);
-        floori(t0), floori(t1);
-        return Math.floor(count(t0, t1));
-      };
-
-      interval.every = function(step) {
-        step = Math.floor(step);
-        return !isFinite(step) || !(step > 0) ? null
-            : !(step > 1) ? interval
-            : interval.filter(field
-                ? function(d) { return field(d) % step === 0; }
-                : function(d) { return interval.count(0, d) % step === 0; });
-      };
-    }
-
-    return interval;
-  }
-
-  var millisecond = newInterval(function() {
-    // noop
-  }, function(date, step) {
-    date.setTime(+date + step);
-  }, function(start, end) {
-    return end - start;
-  });
-
-  // An optimized implementation for this simple case.
-  millisecond.every = function(k) {
-    k = Math.floor(k);
-    if (!isFinite(k) || !(k > 0)) return null;
-    if (!(k > 1)) return millisecond;
-    return newInterval(function(date) {
-      date.setTime(Math.floor(date / k) * k);
-    }, function(date, step) {
-      date.setTime(+date + step * k);
-    }, function(start, end) {
-      return (end - start) / k;
-    });
-  };
-  millisecond.range;
-
-  const durationSecond = 1000;
-  const durationMinute = durationSecond * 60;
-  const durationHour = durationMinute * 60;
-  const durationDay = durationHour * 24;
-  const durationWeek = durationDay * 7;
-
-  var second = newInterval(function(date) {
-    date.setTime(date - date.getMilliseconds());
-  }, function(date, step) {
-    date.setTime(+date + step * durationSecond);
-  }, function(start, end) {
-    return (end - start) / durationSecond;
-  }, function(date) {
-    return date.getUTCSeconds();
-  });
-  second.range;
-
-  var minute = newInterval(function(date) {
-    date.setTime(date - date.getMilliseconds() - date.getSeconds() * durationSecond);
-  }, function(date, step) {
-    date.setTime(+date + step * durationMinute);
-  }, function(start, end) {
-    return (end - start) / durationMinute;
-  }, function(date) {
-    return date.getMinutes();
-  });
-  minute.range;
-
-  var hour = newInterval(function(date) {
-    date.setTime(date - date.getMilliseconds() - date.getSeconds() * durationSecond - date.getMinutes() * durationMinute);
-  }, function(date, step) {
-    date.setTime(+date + step * durationHour);
-  }, function(start, end) {
-    return (end - start) / durationHour;
-  }, function(date) {
-    return date.getHours();
-  });
-  hour.range;
-
-  var day = newInterval(
-    date => date.setHours(0, 0, 0, 0),
-    (date, step) => date.setDate(date.getDate() + step),
-    (start, end) => (end - start - (end.getTimezoneOffset() - start.getTimezoneOffset()) * durationMinute) / durationDay,
-    date => date.getDate() - 1
-  );
-  day.range;
-
-  function weekday(i) {
-    return newInterval(function(date) {
-      date.setDate(date.getDate() - (date.getDay() + 7 - i) % 7);
-      date.setHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setDate(date.getDate() + step * 7);
-    }, function(start, end) {
-      return (end - start - (end.getTimezoneOffset() - start.getTimezoneOffset()) * durationMinute) / durationWeek;
-    });
-  }
-
-  var sunday = weekday(0);
-  var monday = weekday(1);
-  var tuesday = weekday(2);
-  var wednesday = weekday(3);
-  var thursday = weekday(4);
-  var friday = weekday(5);
-  var saturday = weekday(6);
-
-  sunday.range;
-  monday.range;
-  tuesday.range;
-  wednesday.range;
-  thursday.range;
-  friday.range;
-  saturday.range;
-
-  var month = newInterval(function(date) {
-    date.setDate(1);
-    date.setHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setMonth(date.getMonth() + step);
-  }, function(start, end) {
-    return end.getMonth() - start.getMonth() + (end.getFullYear() - start.getFullYear()) * 12;
-  }, function(date) {
-    return date.getMonth();
-  });
-  month.range;
-
-  var year = newInterval(function(date) {
-    date.setMonth(0, 1);
-    date.setHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setFullYear(date.getFullYear() + step);
-  }, function(start, end) {
-    return end.getFullYear() - start.getFullYear();
-  }, function(date) {
-    return date.getFullYear();
-  });
-
-  // An optimized implementation for this simple case.
-  year.every = function(k) {
-    return !isFinite(k = Math.floor(k)) || !(k > 0) ? null : newInterval(function(date) {
-      date.setFullYear(Math.floor(date.getFullYear() / k) * k);
-      date.setMonth(0, 1);
-      date.setHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setFullYear(date.getFullYear() + step * k);
-    });
-  };
-  year.range;
-
-  var utcMinute = newInterval(function(date) {
-    date.setUTCSeconds(0, 0);
-  }, function(date, step) {
-    date.setTime(+date + step * durationMinute);
-  }, function(start, end) {
-    return (end - start) / durationMinute;
-  }, function(date) {
-    return date.getUTCMinutes();
-  });
-  utcMinute.range;
-
-  var utcHour = newInterval(function(date) {
-    date.setUTCMinutes(0, 0, 0);
-  }, function(date, step) {
-    date.setTime(+date + step * durationHour);
-  }, function(start, end) {
-    return (end - start) / durationHour;
-  }, function(date) {
-    return date.getUTCHours();
-  });
-  utcHour.range;
-
-  var utcDay = newInterval(function(date) {
-    date.setUTCHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setUTCDate(date.getUTCDate() + step);
-  }, function(start, end) {
-    return (end - start) / durationDay;
-  }, function(date) {
-    return date.getUTCDate() - 1;
-  });
-  utcDay.range;
-
-  function utcWeekday(i) {
-    return newInterval(function(date) {
-      date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 7 - i) % 7);
-      date.setUTCHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setUTCDate(date.getUTCDate() + step * 7);
-    }, function(start, end) {
-      return (end - start) / durationWeek;
-    });
-  }
-
-  var utcSunday = utcWeekday(0);
-  var utcMonday = utcWeekday(1);
-  var utcTuesday = utcWeekday(2);
-  var utcWednesday = utcWeekday(3);
-  var utcThursday = utcWeekday(4);
-  var utcFriday = utcWeekday(5);
-  var utcSaturday = utcWeekday(6);
-
-  utcSunday.range;
-  utcMonday.range;
-  utcTuesday.range;
-  utcWednesday.range;
-  utcThursday.range;
-  utcFriday.range;
-  utcSaturday.range;
-
-  var utcMonth = newInterval(function(date) {
-    date.setUTCDate(1);
-    date.setUTCHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setUTCMonth(date.getUTCMonth() + step);
-  }, function(start, end) {
-    return end.getUTCMonth() - start.getUTCMonth() + (end.getUTCFullYear() - start.getUTCFullYear()) * 12;
-  }, function(date) {
-    return date.getUTCMonth();
-  });
-  utcMonth.range;
-
-  var utcYear = newInterval(function(date) {
-    date.setUTCMonth(0, 1);
-    date.setUTCHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setUTCFullYear(date.getUTCFullYear() + step);
-  }, function(start, end) {
-    return end.getUTCFullYear() - start.getUTCFullYear();
-  }, function(date) {
-    return date.getUTCFullYear();
-  });
-
-  // An optimized implementation for this simple case.
-  utcYear.every = function(k) {
-    return !isFinite(k = Math.floor(k)) || !(k > 0) ? null : newInterval(function(date) {
-      date.setUTCFullYear(Math.floor(date.getUTCFullYear() / k) * k);
-      date.setUTCMonth(0, 1);
-      date.setUTCHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setUTCFullYear(date.getUTCFullYear() + step * k);
-    });
-  };
-  utcYear.range;
-
-  function localDate(d) {
-    if (0 <= d.y && d.y < 100) {
-      var date = new Date(-1, d.m, d.d, d.H, d.M, d.S, d.L);
-      date.setFullYear(d.y);
-      return date;
-    }
-    return new Date(d.y, d.m, d.d, d.H, d.M, d.S, d.L);
-  }
-
-  function utcDate(d) {
-    if (0 <= d.y && d.y < 100) {
-      var date = new Date(Date.UTC(-1, d.m, d.d, d.H, d.M, d.S, d.L));
-      date.setUTCFullYear(d.y);
-      return date;
-    }
-    return new Date(Date.UTC(d.y, d.m, d.d, d.H, d.M, d.S, d.L));
-  }
-
-  function newDate(y, m, d) {
-    return {y: y, m: m, d: d, H: 0, M: 0, S: 0, L: 0};
-  }
-
-  function formatLocale(locale) {
-    var locale_dateTime = locale.dateTime,
-        locale_date = locale.date,
-        locale_time = locale.time,
-        locale_periods = locale.periods,
-        locale_weekdays = locale.days,
-        locale_shortWeekdays = locale.shortDays,
-        locale_months = locale.months,
-        locale_shortMonths = locale.shortMonths;
-
-    var periodRe = formatRe(locale_periods),
-        periodLookup = formatLookup(locale_periods),
-        weekdayRe = formatRe(locale_weekdays),
-        weekdayLookup = formatLookup(locale_weekdays),
-        shortWeekdayRe = formatRe(locale_shortWeekdays),
-        shortWeekdayLookup = formatLookup(locale_shortWeekdays),
-        monthRe = formatRe(locale_months),
-        monthLookup = formatLookup(locale_months),
-        shortMonthRe = formatRe(locale_shortMonths),
-        shortMonthLookup = formatLookup(locale_shortMonths);
-
-    var formats = {
-      "a": formatShortWeekday,
-      "A": formatWeekday,
-      "b": formatShortMonth,
-      "B": formatMonth,
-      "c": null,
-      "d": formatDayOfMonth,
-      "e": formatDayOfMonth,
-      "f": formatMicroseconds,
-      "g": formatYearISO,
-      "G": formatFullYearISO,
-      "H": formatHour24,
-      "I": formatHour12,
-      "j": formatDayOfYear,
-      "L": formatMilliseconds,
-      "m": formatMonthNumber,
-      "M": formatMinutes,
-      "p": formatPeriod,
-      "q": formatQuarter,
-      "Q": formatUnixTimestamp,
-      "s": formatUnixTimestampSeconds,
-      "S": formatSeconds,
-      "u": formatWeekdayNumberMonday,
-      "U": formatWeekNumberSunday,
-      "V": formatWeekNumberISO,
-      "w": formatWeekdayNumberSunday,
-      "W": formatWeekNumberMonday,
-      "x": null,
-      "X": null,
-      "y": formatYear,
-      "Y": formatFullYear,
-      "Z": formatZone,
-      "%": formatLiteralPercent
-    };
-
-    var utcFormats = {
-      "a": formatUTCShortWeekday,
-      "A": formatUTCWeekday,
-      "b": formatUTCShortMonth,
-      "B": formatUTCMonth,
-      "c": null,
-      "d": formatUTCDayOfMonth,
-      "e": formatUTCDayOfMonth,
-      "f": formatUTCMicroseconds,
-      "g": formatUTCYearISO,
-      "G": formatUTCFullYearISO,
-      "H": formatUTCHour24,
-      "I": formatUTCHour12,
-      "j": formatUTCDayOfYear,
-      "L": formatUTCMilliseconds,
-      "m": formatUTCMonthNumber,
-      "M": formatUTCMinutes,
-      "p": formatUTCPeriod,
-      "q": formatUTCQuarter,
-      "Q": formatUnixTimestamp,
-      "s": formatUnixTimestampSeconds,
-      "S": formatUTCSeconds,
-      "u": formatUTCWeekdayNumberMonday,
-      "U": formatUTCWeekNumberSunday,
-      "V": formatUTCWeekNumberISO,
-      "w": formatUTCWeekdayNumberSunday,
-      "W": formatUTCWeekNumberMonday,
-      "x": null,
-      "X": null,
-      "y": formatUTCYear,
-      "Y": formatUTCFullYear,
-      "Z": formatUTCZone,
-      "%": formatLiteralPercent
-    };
-
-    var parses = {
-      "a": parseShortWeekday,
-      "A": parseWeekday,
-      "b": parseShortMonth,
-      "B": parseMonth,
-      "c": parseLocaleDateTime,
-      "d": parseDayOfMonth,
-      "e": parseDayOfMonth,
-      "f": parseMicroseconds,
-      "g": parseYear,
-      "G": parseFullYear,
-      "H": parseHour24,
-      "I": parseHour24,
-      "j": parseDayOfYear,
-      "L": parseMilliseconds,
-      "m": parseMonthNumber,
-      "M": parseMinutes,
-      "p": parsePeriod,
-      "q": parseQuarter,
-      "Q": parseUnixTimestamp,
-      "s": parseUnixTimestampSeconds,
-      "S": parseSeconds,
-      "u": parseWeekdayNumberMonday,
-      "U": parseWeekNumberSunday,
-      "V": parseWeekNumberISO,
-      "w": parseWeekdayNumberSunday,
-      "W": parseWeekNumberMonday,
-      "x": parseLocaleDate,
-      "X": parseLocaleTime,
-      "y": parseYear,
-      "Y": parseFullYear,
-      "Z": parseZone,
-      "%": parseLiteralPercent
-    };
-
-    // These recursive directive definitions must be deferred.
-    formats.x = newFormat(locale_date, formats);
-    formats.X = newFormat(locale_time, formats);
-    formats.c = newFormat(locale_dateTime, formats);
-    utcFormats.x = newFormat(locale_date, utcFormats);
-    utcFormats.X = newFormat(locale_time, utcFormats);
-    utcFormats.c = newFormat(locale_dateTime, utcFormats);
-
-    function newFormat(specifier, formats) {
-      return function(date) {
-        var string = [],
-            i = -1,
-            j = 0,
-            n = specifier.length,
-            c,
-            pad,
-            format;
-
-        if (!(date instanceof Date)) date = new Date(+date);
-
-        while (++i < n) {
-          if (specifier.charCodeAt(i) === 37) {
-            string.push(specifier.slice(j, i));
-            if ((pad = pads[c = specifier.charAt(++i)]) != null) c = specifier.charAt(++i);
-            else pad = c === "e" ? " " : "0";
-            if (format = formats[c]) c = format(date, pad);
-            string.push(c);
-            j = i + 1;
-          }
-        }
-
-        string.push(specifier.slice(j, i));
-        return string.join("");
-      };
-    }
-
-    function newParse(specifier, Z) {
-      return function(string) {
-        var d = newDate(1900, undefined, 1),
-            i = parseSpecifier(d, specifier, string += "", 0),
-            week, day$1;
-        if (i != string.length) return null;
-
-        // If a UNIX timestamp is specified, return it.
-        if ("Q" in d) return new Date(d.Q);
-        if ("s" in d) return new Date(d.s * 1000 + ("L" in d ? d.L : 0));
-
-        // If this is utcParse, never use the local timezone.
-        if (Z && !("Z" in d)) d.Z = 0;
-
-        // The am-pm flag is 0 for AM, and 1 for PM.
-        if ("p" in d) d.H = d.H % 12 + d.p * 12;
-
-        // If the month was not specified, inherit from the quarter.
-        if (d.m === undefined) d.m = "q" in d ? d.q : 0;
-
-        // Convert day-of-week and week-of-year to day-of-year.
-        if ("V" in d) {
-          if (d.V < 1 || d.V > 53) return null;
-          if (!("w" in d)) d.w = 1;
-          if ("Z" in d) {
-            week = utcDate(newDate(d.y, 0, 1)), day$1 = week.getUTCDay();
-            week = day$1 > 4 || day$1 === 0 ? utcMonday.ceil(week) : utcMonday(week);
-            week = utcDay.offset(week, (d.V - 1) * 7);
-            d.y = week.getUTCFullYear();
-            d.m = week.getUTCMonth();
-            d.d = week.getUTCDate() + (d.w + 6) % 7;
-          } else {
-            week = localDate(newDate(d.y, 0, 1)), day$1 = week.getDay();
-            week = day$1 > 4 || day$1 === 0 ? monday.ceil(week) : monday(week);
-            week = day.offset(week, (d.V - 1) * 7);
-            d.y = week.getFullYear();
-            d.m = week.getMonth();
-            d.d = week.getDate() + (d.w + 6) % 7;
-          }
-        } else if ("W" in d || "U" in d) {
-          if (!("w" in d)) d.w = "u" in d ? d.u % 7 : "W" in d ? 1 : 0;
-          day$1 = "Z" in d ? utcDate(newDate(d.y, 0, 1)).getUTCDay() : localDate(newDate(d.y, 0, 1)).getDay();
-          d.m = 0;
-          d.d = "W" in d ? (d.w + 6) % 7 + d.W * 7 - (day$1 + 5) % 7 : d.w + d.U * 7 - (day$1 + 6) % 7;
-        }
-
-        // If a time zone is specified, all fields are interpreted as UTC and then
-        // offset according to the specified time zone.
-        if ("Z" in d) {
-          d.H += d.Z / 100 | 0;
-          d.M += d.Z % 100;
-          return utcDate(d);
-        }
-
-        // Otherwise, all fields are in local time.
-        return localDate(d);
-      };
-    }
-
-    function parseSpecifier(d, specifier, string, j) {
-      var i = 0,
-          n = specifier.length,
-          m = string.length,
-          c,
-          parse;
-
-      while (i < n) {
-        if (j >= m) return -1;
-        c = specifier.charCodeAt(i++);
-        if (c === 37) {
-          c = specifier.charAt(i++);
-          parse = parses[c in pads ? specifier.charAt(i++) : c];
-          if (!parse || ((j = parse(d, string, j)) < 0)) return -1;
-        } else if (c != string.charCodeAt(j++)) {
-          return -1;
-        }
-      }
-
-      return j;
-    }
-
-    function parsePeriod(d, string, i) {
-      var n = periodRe.exec(string.slice(i));
-      return n ? (d.p = periodLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseShortWeekday(d, string, i) {
-      var n = shortWeekdayRe.exec(string.slice(i));
-      return n ? (d.w = shortWeekdayLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseWeekday(d, string, i) {
-      var n = weekdayRe.exec(string.slice(i));
-      return n ? (d.w = weekdayLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseShortMonth(d, string, i) {
-      var n = shortMonthRe.exec(string.slice(i));
-      return n ? (d.m = shortMonthLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseMonth(d, string, i) {
-      var n = monthRe.exec(string.slice(i));
-      return n ? (d.m = monthLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseLocaleDateTime(d, string, i) {
-      return parseSpecifier(d, locale_dateTime, string, i);
-    }
-
-    function parseLocaleDate(d, string, i) {
-      return parseSpecifier(d, locale_date, string, i);
-    }
-
-    function parseLocaleTime(d, string, i) {
-      return parseSpecifier(d, locale_time, string, i);
-    }
-
-    function formatShortWeekday(d) {
-      return locale_shortWeekdays[d.getDay()];
-    }
-
-    function formatWeekday(d) {
-      return locale_weekdays[d.getDay()];
-    }
-
-    function formatShortMonth(d) {
-      return locale_shortMonths[d.getMonth()];
-    }
-
-    function formatMonth(d) {
-      return locale_months[d.getMonth()];
-    }
-
-    function formatPeriod(d) {
-      return locale_periods[+(d.getHours() >= 12)];
-    }
-
-    function formatQuarter(d) {
-      return 1 + ~~(d.getMonth() / 3);
-    }
-
-    function formatUTCShortWeekday(d) {
-      return locale_shortWeekdays[d.getUTCDay()];
-    }
-
-    function formatUTCWeekday(d) {
-      return locale_weekdays[d.getUTCDay()];
-    }
-
-    function formatUTCShortMonth(d) {
-      return locale_shortMonths[d.getUTCMonth()];
-    }
-
-    function formatUTCMonth(d) {
-      return locale_months[d.getUTCMonth()];
-    }
-
-    function formatUTCPeriod(d) {
-      return locale_periods[+(d.getUTCHours() >= 12)];
-    }
-
-    function formatUTCQuarter(d) {
-      return 1 + ~~(d.getUTCMonth() / 3);
-    }
-
-    return {
-      format: function(specifier) {
-        var f = newFormat(specifier += "", formats);
-        f.toString = function() { return specifier; };
-        return f;
-      },
-      parse: function(specifier) {
-        var p = newParse(specifier += "", false);
-        p.toString = function() { return specifier; };
-        return p;
-      },
-      utcFormat: function(specifier) {
-        var f = newFormat(specifier += "", utcFormats);
-        f.toString = function() { return specifier; };
-        return f;
-      },
-      utcParse: function(specifier) {
-        var p = newParse(specifier += "", true);
-        p.toString = function() { return specifier; };
-        return p;
-      }
-    };
-  }
-
-  var pads = {"-": "", "_": " ", "0": "0"},
-      numberRe = /^\s*\d+/, // note: ignores next directive
-      percentRe = /^%/,
-      requoteRe = /[\\^$*+?|[\]().{}]/g;
-
-  function pad(value, fill, width) {
-    var sign = value < 0 ? "-" : "",
-        string = (sign ? -value : value) + "",
-        length = string.length;
-    return sign + (length < width ? new Array(width - length + 1).join(fill) + string : string);
-  }
-
-  function requote(s) {
-    return s.replace(requoteRe, "\\$&");
-  }
-
-  function formatRe(names) {
-    return new RegExp("^(?:" + names.map(requote).join("|") + ")", "i");
-  }
-
-  function formatLookup(names) {
-    return new Map(names.map((name, i) => [name.toLowerCase(), i]));
-  }
-
-  function parseWeekdayNumberSunday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 1));
-    return n ? (d.w = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekdayNumberMonday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 1));
-    return n ? (d.u = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekNumberSunday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.U = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekNumberISO(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.V = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekNumberMonday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.W = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseFullYear(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 4));
-    return n ? (d.y = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseYear(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.y = +n[0] + (+n[0] > 68 ? 1900 : 2000), i + n[0].length) : -1;
-  }
-
-  function parseZone(d, string, i) {
-    var n = /^(Z)|([+-]\d\d)(?::?(\d\d))?/.exec(string.slice(i, i + 6));
-    return n ? (d.Z = n[1] ? 0 : -(n[2] + (n[3] || "00")), i + n[0].length) : -1;
-  }
-
-  function parseQuarter(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 1));
-    return n ? (d.q = n[0] * 3 - 3, i + n[0].length) : -1;
-  }
-
-  function parseMonthNumber(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.m = n[0] - 1, i + n[0].length) : -1;
-  }
-
-  function parseDayOfMonth(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.d = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseDayOfYear(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 3));
-    return n ? (d.m = 0, d.d = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseHour24(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.H = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseMinutes(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.M = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseSeconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.S = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseMilliseconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 3));
-    return n ? (d.L = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseMicroseconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 6));
-    return n ? (d.L = Math.floor(n[0] / 1000), i + n[0].length) : -1;
-  }
-
-  function parseLiteralPercent(d, string, i) {
-    var n = percentRe.exec(string.slice(i, i + 1));
-    return n ? i + n[0].length : -1;
-  }
-
-  function parseUnixTimestamp(d, string, i) {
-    var n = numberRe.exec(string.slice(i));
-    return n ? (d.Q = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseUnixTimestampSeconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i));
-    return n ? (d.s = +n[0], i + n[0].length) : -1;
-  }
-
-  function formatDayOfMonth(d, p) {
-    return pad(d.getDate(), p, 2);
-  }
-
-  function formatHour24(d, p) {
-    return pad(d.getHours(), p, 2);
-  }
-
-  function formatHour12(d, p) {
-    return pad(d.getHours() % 12 || 12, p, 2);
-  }
-
-  function formatDayOfYear(d, p) {
-    return pad(1 + day.count(year(d), d), p, 3);
-  }
-
-  function formatMilliseconds(d, p) {
-    return pad(d.getMilliseconds(), p, 3);
-  }
-
-  function formatMicroseconds(d, p) {
-    return formatMilliseconds(d, p) + "000";
-  }
-
-  function formatMonthNumber(d, p) {
-    return pad(d.getMonth() + 1, p, 2);
-  }
-
-  function formatMinutes(d, p) {
-    return pad(d.getMinutes(), p, 2);
-  }
-
-  function formatSeconds(d, p) {
-    return pad(d.getSeconds(), p, 2);
-  }
-
-  function formatWeekdayNumberMonday(d) {
-    var day = d.getDay();
-    return day === 0 ? 7 : day;
-  }
-
-  function formatWeekNumberSunday(d, p) {
-    return pad(sunday.count(year(d) - 1, d), p, 2);
-  }
-
-  function dISO(d) {
-    var day = d.getDay();
-    return (day >= 4 || day === 0) ? thursday(d) : thursday.ceil(d);
-  }
-
-  function formatWeekNumberISO(d, p) {
-    d = dISO(d);
-    return pad(thursday.count(year(d), d) + (year(d).getDay() === 4), p, 2);
-  }
-
-  function formatWeekdayNumberSunday(d) {
-    return d.getDay();
-  }
-
-  function formatWeekNumberMonday(d, p) {
-    return pad(monday.count(year(d) - 1, d), p, 2);
-  }
-
-  function formatYear(d, p) {
-    return pad(d.getFullYear() % 100, p, 2);
-  }
-
-  function formatYearISO(d, p) {
-    d = dISO(d);
-    return pad(d.getFullYear() % 100, p, 2);
-  }
-
-  function formatFullYear(d, p) {
-    return pad(d.getFullYear() % 10000, p, 4);
-  }
-
-  function formatFullYearISO(d, p) {
-    var day = d.getDay();
-    d = (day >= 4 || day === 0) ? thursday(d) : thursday.ceil(d);
-    return pad(d.getFullYear() % 10000, p, 4);
-  }
-
-  function formatZone(d) {
-    var z = d.getTimezoneOffset();
-    return (z > 0 ? "-" : (z *= -1, "+"))
-        + pad(z / 60 | 0, "0", 2)
-        + pad(z % 60, "0", 2);
-  }
-
-  function formatUTCDayOfMonth(d, p) {
-    return pad(d.getUTCDate(), p, 2);
-  }
-
-  function formatUTCHour24(d, p) {
-    return pad(d.getUTCHours(), p, 2);
-  }
-
-  function formatUTCHour12(d, p) {
-    return pad(d.getUTCHours() % 12 || 12, p, 2);
-  }
-
-  function formatUTCDayOfYear(d, p) {
-    return pad(1 + utcDay.count(utcYear(d), d), p, 3);
-  }
-
-  function formatUTCMilliseconds(d, p) {
-    return pad(d.getUTCMilliseconds(), p, 3);
-  }
-
-  function formatUTCMicroseconds(d, p) {
-    return formatUTCMilliseconds(d, p) + "000";
-  }
-
-  function formatUTCMonthNumber(d, p) {
-    return pad(d.getUTCMonth() + 1, p, 2);
-  }
-
-  function formatUTCMinutes(d, p) {
-    return pad(d.getUTCMinutes(), p, 2);
-  }
-
-  function formatUTCSeconds(d, p) {
-    return pad(d.getUTCSeconds(), p, 2);
-  }
-
-  function formatUTCWeekdayNumberMonday(d) {
-    var dow = d.getUTCDay();
-    return dow === 0 ? 7 : dow;
-  }
-
-  function formatUTCWeekNumberSunday(d, p) {
-    return pad(utcSunday.count(utcYear(d) - 1, d), p, 2);
-  }
-
-  function UTCdISO(d) {
-    var day = d.getUTCDay();
-    return (day >= 4 || day === 0) ? utcThursday(d) : utcThursday.ceil(d);
-  }
-
-  function formatUTCWeekNumberISO(d, p) {
-    d = UTCdISO(d);
-    return pad(utcThursday.count(utcYear(d), d) + (utcYear(d).getUTCDay() === 4), p, 2);
-  }
-
-  function formatUTCWeekdayNumberSunday(d) {
-    return d.getUTCDay();
-  }
-
-  function formatUTCWeekNumberMonday(d, p) {
-    return pad(utcMonday.count(utcYear(d) - 1, d), p, 2);
-  }
-
-  function formatUTCYear(d, p) {
-    return pad(d.getUTCFullYear() % 100, p, 2);
-  }
-
-  function formatUTCYearISO(d, p) {
-    d = UTCdISO(d);
-    return pad(d.getUTCFullYear() % 100, p, 2);
-  }
-
-  function formatUTCFullYear(d, p) {
-    return pad(d.getUTCFullYear() % 10000, p, 4);
-  }
-
-  function formatUTCFullYearISO(d, p) {
-    var day = d.getUTCDay();
-    d = (day >= 4 || day === 0) ? utcThursday(d) : utcThursday.ceil(d);
-    return pad(d.getUTCFullYear() % 10000, p, 4);
-  }
-
-  function formatUTCZone() {
-    return "+0000";
-  }
-
-  function formatLiteralPercent() {
-    return "%";
-  }
-
-  function formatUnixTimestamp(d) {
-    return +d;
-  }
-
-  function formatUnixTimestampSeconds(d) {
-    return Math.floor(+d / 1000);
-  }
-
-  var locale;
-  var utcFormat;
-  var utcParse;
-
-  defaultLocale({
-    dateTime: "%x, %X",
-    date: "%-m/%-d/%Y",
-    time: "%-I:%M:%S %p",
-    periods: ["AM", "PM"],
-    days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-    shortDays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-    months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-    shortMonths: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-  });
-
-  function defaultLocale(definition) {
-    locale = formatLocale(definition);
-    utcFormat = locale.utcFormat;
-    utcParse = locale.utcParse;
-    return locale;
-  }
-
-  var isoSpecifier = "%Y-%m-%dT%H:%M:%S.%LZ";
-
-  function formatIsoNative(date) {
-    return date.toISOString();
-  }
-
-  Date.prototype.toISOString
-      ? formatIsoNative
-      : utcFormat(isoSpecifier);
-
-  function parseIsoNative(string) {
-    var date = new Date(string);
-    return isNaN(date) ? null : date;
-  }
-
-  +new Date("2000-01-01T00:00:00.000Z")
-      ? parseIsoNative
-      : utcParse(isoSpecifier);
 
   function isArrayIndex(x) {
   	return (parseInt(x).toString() === "" + x) && (x >= 0);
@@ -5667,25 +5609,15 @@
   	Live: Fleet
   };
 
-  function buildAPIChart2({ base, data, bindings, state }) {
-    // console.log('hello', base, data, bindings, state);
-
+  function buildAPIChart({ base, data, bindings, state }) {
     const apiOptions = { ...base, ...data, ...bindings, ...state };
-    console.log('apiOptions2', apiOptions);
-
     new Flourish.Live(apiOptions);
   }
 
-  function ready(data) {
-    buildSelectUI();
-    dispatch.on('blurb', function (eventData) {
-      // console.log(eventData);
-      // buildAPIChart(info, data);
-      buildAPIChart2(eventData);
-    });
-  }
-
-  csv(`${dataUrl}?${Math.random()}`, autoType).then(ready);
+  buildSelectUI();
+  dispatch.on('apidata', function (eventData) {
+    buildAPIChart(eventData);
+  });
 
 })();
 //# sourceMappingURL=app.js.map

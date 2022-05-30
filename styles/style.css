@@ -10,28 +10,36 @@ body * {
   display: none;
 }
 
-#vis-id,
-#data-url {
-  align-items: baseline;
+.form-section {
+  margin: 0.75rem;
+  padding: 0.25rem;
 }
 
-#vis-id-input,
-#data-url-input,
-#template-selections select,
-#submit {
-  margin: 1rem 0.3rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: 3px;
-  border: 1px solid #ccc;
+.dataset {
+  margin: 0.75rem 0;
 }
 
-.binding {
-  font-weight: 200;
-  margin: 0.5rem;
+.dataset > div {
+  margin: 0.25rem;
+}
+
+input {
+  border: 1px solid #ccc
+}
+
+label {
+  padding-left: 0.5rem;
 }
 
 .binding label {
-  padding-left: 0.5rem;
+  font-weight: 200;
+}
+
+button {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 0px;
+  color: #333;
 }
 
 button#submit {
