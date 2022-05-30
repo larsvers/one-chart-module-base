@@ -30,6 +30,7 @@
     "@flourish/live-api": "^4.5.0",
     "core-js": "^3.22.7",
     "d3-array": "^3.1.6",
+    "d3-dispatch": "^3.0.1",
     "d3-dsv": "^3.0.1",
     "d3-fetch": "^3.0.1",
     "d3-selection": "^3.0.0",

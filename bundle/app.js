@@ -223,28 +223,97 @@
     return fetch(input, init).then(responseJson);
   }
 
+  var noop = {value: () => {}};
+
+  function dispatch$1() {
+    for (var i = 0, n = arguments.length, _ = {}, t; i < n; ++i) {
+      if (!(t = arguments[i] + "") || (t in _) || /[\s.]/.test(t)) throw new Error("illegal type: " + t);
+      _[t] = [];
+    }
+    return new Dispatch(_);
+  }
+
+  function Dispatch(_) {
+    this._ = _;
+  }
+
+  function parseTypenames$1(typenames, types) {
+    return typenames.trim().split(/^|\s+/).map(function(t) {
+      var name = "", i = t.indexOf(".");
+      if (i >= 0) name = t.slice(i + 1), t = t.slice(0, i);
+      if (t && !types.hasOwnProperty(t)) throw new Error("unknown type: " + t);
+      return {type: t, name: name};
+    });
+  }
+
+  Dispatch.prototype = dispatch$1.prototype = {
+    constructor: Dispatch,
+    on: function(typename, callback) {
+      var _ = this._,
+          T = parseTypenames$1(typename + "", _),
+          t,
+          i = -1,
+          n = T.length;
+
+      // If no callback was specified, return the callback of the given type and name.
+      if (arguments.length < 2) {
+        while (++i < n) if ((t = (typename = T[i]).type) && (t = get(_[t], typename.name))) return t;
+        return;
+      }
+
+      // If a type was specified, set the callback for the given type and name.
+      // Otherwise, if a null callback was specified, remove callbacks of the given name.
+      if (callback != null && typeof callback !== "function") throw new Error("invalid callback: " + callback);
+      while (++i < n) {
+        if (t = (typename = T[i]).type) _[t] = set(_[t], typename.name, callback);
+        else if (callback == null) for (t in _) _[t] = set(_[t], typename.name, null);
+      }
+
+      return this;
+    },
+    copy: function() {
+      var copy = {}, _ = this._;
+      for (var t in _) copy[t] = _[t].slice();
+      return new Dispatch(copy);
+    },
+    call: function(type, that) {
+      if ((n = arguments.length - 2) > 0) for (var args = new Array(n), i = 0, n, t; i < n; ++i) args[i] = arguments[i + 2];
+      if (!this._.hasOwnProperty(type)) throw new Error("unknown type: " + type);
+      for (t = this._[type], i = 0, n = t.length; i < n; ++i) t[i].value.apply(that, args);
+    },
+    apply: function(type, that, args) {
+      if (!this._.hasOwnProperty(type)) throw new Error("unknown type: " + type);
+      for (var t = this._[type], i = 0, n = t.length; i < n; ++i) t[i].value.apply(that, args);
+    }
+  };
+
+  function get(type, name) {
+    for (var i = 0, n = type.length, c; i < n; ++i) {
+      if ((c = type[i]).name === name) {
+        return c.value;
+      }
+    }
+  }
+
+  function set(type, name, callback) {
+    for (var i = 0, n = type.length; i < n; ++i) {
+      if (type[i].name === name) {
+        type[i] = noop, type = type.slice(0, i).concat(type.slice(i + 1));
+        break;
+      }
+    }
+    if (callback != null) type.push({name: name, value: callback});
+    return type;
+  }
+
+  /* eslint-disable camelcase */
+
+  const dispatch = dispatch$1('blurb');
+
   const dataUrl =
     'https://raw.githubusercontent.com/larsvers/one-chart-module-base/main/data/c02_covid_impacts_latest.csv?token=GHSAT0AAAAAABRDVE5JKVC7HIK5YHGDDQIQYUH3FMA';
 
   const apiKey = 'ibeisDkN0WvNvxeSbWLz0PKTAHPCksrufizuWLMUC6U-UlH2PekIv0jeq8yZUkhU';
-
-  const info = {
-    container: '#chart-container',
-    base_chart: '10068155',
-    country: 'ZAF', // not doing anything yet
-    template: '@flourish/line-bar-pie',
-    state: {
-      chart_type: 'column_grouped',
-    },
-    bindings: {
-      // data: { // assuming the script will know the data sheet name.
-      filter: 'indicator',
-      label: 'iso_code',
-      metadata: ['date', 'indicator_name'],
-      value: ['value'],
-      // },
-    },
-  };
 
   function ascending$1(a, b) {
     return a == null || b == null ? NaN : a < b ? -1 : a > b ? 1 : a >= b ? 0 : NaN;
@@ -1340,2366 +1409,6 @@
         ? new Selection([document.querySelectorAll(selector)], [document.documentElement])
         : new Selection([array(selector)], root);
   }
-
-  // Helpers.
-  function show(selector) {
-    selectAll('.ui').style('display', 'none');
-    select(selector).style('display', 'flex');
-  }
-
-  async function sendMetadataRequest(templateId, version) {
-    // Left out `&auto=1`
-    const endpoint = `https://flourish-api.com/api/v1/live/metadata?api_key=${apiKey}&template=${encodeURIComponent(
-    templateId
-  )}&version=${version}`;
-    const result = await json(endpoint);
-    return result;
-  }
-
-  async function sendVisJsonRequest(visId) {
-    const endpoint = `https://public.flourish.studio/visualisation/${visId}/visualisation.json`;
-    const result = await json(endpoint);
-    return result;
-  }
-
-  function getBindingNames(bindings, data) {
-    // The column names in an array.
-    const colNames = data[0];
-    const bindingNameObject = {};
-
-    // This will map the column name indeces to the column names.
-    for (const key in bindings) {
-      // Probably already an object name
-      if (typeof bindings[key] === 'string') {
-        break;
-      }
-      // Replace numeric index.
-      else if (!isNaN(bindings[key])) {
-        bindingNameObject[key] = colNames[bindings[key]];
-      }
-      // Replace array of numeric indeces.
-      else {
-        bindingNameObject[key] = bindings[key].map(d => colNames[d]);
-      }
-    }
-    return bindingNameObject;
-  }
-
-  function getObjectNamedBindings(bindingObject, dataArray) {
-    // There can be multiple datasets per template (ie. Projection Map has three)
-    // First we loop through each dataset here and then get each dataset's bindings.
-    const objectBindings = {};
-    for (const bindingKey in bindingObject) {
-      objectBindings[bindingKey] = getBindingNames(bindingObject[bindingKey], dataArray[bindingKey]);
-    }
-    return objectBindings;
-  }
-
-  // Build.
-  function buildBindingsUi(bindings, bindingsGiven) {
-    const bindingsClean = bindings.filter(d => typeof d !== 'string');
-    const bindingsMap = group(bindingsClean, d => d.dataset);
-
-    // Build dataset wrapper div's.
-    const datasets = select('#binding-selections')
-      .selectAll('.dataset')
-      .data(bindingsMap)
-      .join('div')
-      .attr('class', 'dataset')
-      .attr('id', d => d[0])
-      .html(d => d[0][0].toUpperCase() + d[0].substring(1));
-
-    // Build a input wrapper for each binding.
-    const bindingElements = datasets
-      .selectAll('.binding')
-      .data(d => d[1])
-      .join('div')
-      .attr('class', 'binding')
-      .attr('id', d => `${d.dataset}-${d.key}`);
-
-    console.log(bindingsGiven);
-
-    // Build labels and inputs for each binding.
-    bindingElements
-      .append('input')
-      .attr('type', 'text')
-      // Fill values if they're given in the original dataset.
-      .attr('value', d => bindingsGiven[d.dataset][d.key]);
-
-    bindingElements
-      .append('label')
-      .attr('for', d => `input#${d.dataset}-${d.key}`)
-      .html(
-        d =>
-          `${d.name} (${d.type === 'columns' ? 'multi' : 'single'}${d.optional ? ' | optional' : ''})`
-      );
-  }
-
-  function buildTemplatePickUI() {
-    // This will be a static JSON unless I can find an endpoint for it.
-    const templateList = [
-      { id: '@flourish/line-bar-pie', versions: [20, 21, 22, 23, 24] },
-      { id: '@flourish/projection-map', versions: [10, 11] },
-      { id: '@flourish/scatter', versions: [13, 14, 15] },
-    ];
-
-    // DOM el's
-    const templateSelection = select('#template-id');
-    const versionSelection = select('#template-version');
-
-    // Build
-    let selectedTemplateId;
-
-    function setVersionSelect(versions) {
-      versionSelection
-        .selectAll('option')
-        .data(versions)
-        .join('option')
-        .attr('value', d => d)
-        .html(d => d);
-    }
-
-    templateSelection
-      .selectAll('option')
-      .data(templateList)
-      .join('option')
-      .attr('value', d => d.id)
-      .html(d => d.id);
-
-    // Handlers
-    templateSelection.on('change', function () {
-      selectedTemplateId = this.value;
-      const { versions } = templateList.filter(d => d.id === selectedTemplateId)[0];
-      setVersionSelect(versions);
-    });
-
-    versionSelection.on('change', async function () {
-      const selectedVersion = this.value;
-      const response = await sendMetadataRequest(selectedTemplateId, selectedVersion);
-      console.log(response);
-      buildBindingsUi(response.data_bindings);
-    });
-  }
-
-  // Paths.
-  function emptyChartPath() {
-    show('#template-selections');
-    buildTemplatePickUI();
-  }
-
-  function baseChartPath() {
-    show('#vis-id');
-    select('#vis-id input').on('change', async function () {
-      const visJson = await sendVisJsonRequest(this.value);
-      const metadata = await sendMetadataRequest(visJson.template, visJson.version);
-      const bindingsGiven = getObjectNamedBindings(visJson.bindings, visJson.data);
-      buildBindingsUi(metadata.data_bindings, bindingsGiven);
-    });
-  }
-
-  // Base.
-  function getPathChoice() {
-    select('#option-path')
-      .selectAll('button')
-      .on('click', function () {
-        this.dataset.option === 'base_chart' ? baseChartPath() : emptyChartPath();
-      });
-  }
-
-  function buildSelectUI() {
-    getPathChoice();
-  }
-
-  var t0 = new Date,
-      t1 = new Date;
-
-  function newInterval(floori, offseti, count, field) {
-
-    function interval(date) {
-      return floori(date = arguments.length === 0 ? new Date : new Date(+date)), date;
-    }
-
-    interval.floor = function(date) {
-      return floori(date = new Date(+date)), date;
-    };
-
-    interval.ceil = function(date) {
-      return floori(date = new Date(date - 1)), offseti(date, 1), floori(date), date;
-    };
-
-    interval.round = function(date) {
-      var d0 = interval(date),
-          d1 = interval.ceil(date);
-      return date - d0 < d1 - date ? d0 : d1;
-    };
-
-    interval.offset = function(date, step) {
-      return offseti(date = new Date(+date), step == null ? 1 : Math.floor(step)), date;
-    };
-
-    interval.range = function(start, stop, step) {
-      var range = [], previous;
-      start = interval.ceil(start);
-      step = step == null ? 1 : Math.floor(step);
-      if (!(start < stop) || !(step > 0)) return range; // also handles Invalid Date
-      do range.push(previous = new Date(+start)), offseti(start, step), floori(start);
-      while (previous < start && start < stop);
-      return range;
-    };
-
-    interval.filter = function(test) {
-      return newInterval(function(date) {
-        if (date >= date) while (floori(date), !test(date)) date.setTime(date - 1);
-      }, function(date, step) {
-        if (date >= date) {
-          if (step < 0) while (++step <= 0) {
-            while (offseti(date, -1), !test(date)) {} // eslint-disable-line no-empty
-          } else while (--step >= 0) {
-            while (offseti(date, +1), !test(date)) {} // eslint-disable-line no-empty
-          }
-        }
-      });
-    };
-
-    if (count) {
-      interval.count = function(start, end) {
-        t0.setTime(+start), t1.setTime(+end);
-        floori(t0), floori(t1);
-        return Math.floor(count(t0, t1));
-      };
-
-      interval.every = function(step) {
-        step = Math.floor(step);
-        return !isFinite(step) || !(step > 0) ? null
-            : !(step > 1) ? interval
-            : interval.filter(field
-                ? function(d) { return field(d) % step === 0; }
-                : function(d) { return interval.count(0, d) % step === 0; });
-      };
-    }
-
-    return interval;
-  }
-
-  var millisecond = newInterval(function() {
-    // noop
-  }, function(date, step) {
-    date.setTime(+date + step);
-  }, function(start, end) {
-    return end - start;
-  });
-
-  // An optimized implementation for this simple case.
-  millisecond.every = function(k) {
-    k = Math.floor(k);
-    if (!isFinite(k) || !(k > 0)) return null;
-    if (!(k > 1)) return millisecond;
-    return newInterval(function(date) {
-      date.setTime(Math.floor(date / k) * k);
-    }, function(date, step) {
-      date.setTime(+date + step * k);
-    }, function(start, end) {
-      return (end - start) / k;
-    });
-  };
-  millisecond.range;
-
-  const durationSecond = 1000;
-  const durationMinute = durationSecond * 60;
-  const durationHour = durationMinute * 60;
-  const durationDay = durationHour * 24;
-  const durationWeek = durationDay * 7;
-
-  var second = newInterval(function(date) {
-    date.setTime(date - date.getMilliseconds());
-  }, function(date, step) {
-    date.setTime(+date + step * durationSecond);
-  }, function(start, end) {
-    return (end - start) / durationSecond;
-  }, function(date) {
-    return date.getUTCSeconds();
-  });
-  second.range;
-
-  var minute = newInterval(function(date) {
-    date.setTime(date - date.getMilliseconds() - date.getSeconds() * durationSecond);
-  }, function(date, step) {
-    date.setTime(+date + step * durationMinute);
-  }, function(start, end) {
-    return (end - start) / durationMinute;
-  }, function(date) {
-    return date.getMinutes();
-  });
-  minute.range;
-
-  var hour = newInterval(function(date) {
-    date.setTime(date - date.getMilliseconds() - date.getSeconds() * durationSecond - date.getMinutes() * durationMinute);
-  }, function(date, step) {
-    date.setTime(+date + step * durationHour);
-  }, function(start, end) {
-    return (end - start) / durationHour;
-  }, function(date) {
-    return date.getHours();
-  });
-  hour.range;
-
-  var day = newInterval(
-    date => date.setHours(0, 0, 0, 0),
-    (date, step) => date.setDate(date.getDate() + step),
-    (start, end) => (end - start - (end.getTimezoneOffset() - start.getTimezoneOffset()) * durationMinute) / durationDay,
-    date => date.getDate() - 1
-  );
-  day.range;
-
-  function weekday(i) {
-    return newInterval(function(date) {
-      date.setDate(date.getDate() - (date.getDay() + 7 - i) % 7);
-      date.setHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setDate(date.getDate() + step * 7);
-    }, function(start, end) {
-      return (end - start - (end.getTimezoneOffset() - start.getTimezoneOffset()) * durationMinute) / durationWeek;
-    });
-  }
-
-  var sunday = weekday(0);
-  var monday = weekday(1);
-  var tuesday = weekday(2);
-  var wednesday = weekday(3);
-  var thursday = weekday(4);
-  var friday = weekday(5);
-  var saturday = weekday(6);
-
-  sunday.range;
-  monday.range;
-  tuesday.range;
-  wednesday.range;
-  thursday.range;
-  friday.range;
-  saturday.range;
-
-  var month = newInterval(function(date) {
-    date.setDate(1);
-    date.setHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setMonth(date.getMonth() + step);
-  }, function(start, end) {
-    return end.getMonth() - start.getMonth() + (end.getFullYear() - start.getFullYear()) * 12;
-  }, function(date) {
-    return date.getMonth();
-  });
-  month.range;
-
-  var year = newInterval(function(date) {
-    date.setMonth(0, 1);
-    date.setHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setFullYear(date.getFullYear() + step);
-  }, function(start, end) {
-    return end.getFullYear() - start.getFullYear();
-  }, function(date) {
-    return date.getFullYear();
-  });
-
-  // An optimized implementation for this simple case.
-  year.every = function(k) {
-    return !isFinite(k = Math.floor(k)) || !(k > 0) ? null : newInterval(function(date) {
-      date.setFullYear(Math.floor(date.getFullYear() / k) * k);
-      date.setMonth(0, 1);
-      date.setHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setFullYear(date.getFullYear() + step * k);
-    });
-  };
-  year.range;
-
-  var utcMinute = newInterval(function(date) {
-    date.setUTCSeconds(0, 0);
-  }, function(date, step) {
-    date.setTime(+date + step * durationMinute);
-  }, function(start, end) {
-    return (end - start) / durationMinute;
-  }, function(date) {
-    return date.getUTCMinutes();
-  });
-  utcMinute.range;
-
-  var utcHour = newInterval(function(date) {
-    date.setUTCMinutes(0, 0, 0);
-  }, function(date, step) {
-    date.setTime(+date + step * durationHour);
-  }, function(start, end) {
-    return (end - start) / durationHour;
-  }, function(date) {
-    return date.getUTCHours();
-  });
-  utcHour.range;
-
-  var utcDay = newInterval(function(date) {
-    date.setUTCHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setUTCDate(date.getUTCDate() + step);
-  }, function(start, end) {
-    return (end - start) / durationDay;
-  }, function(date) {
-    return date.getUTCDate() - 1;
-  });
-  utcDay.range;
-
-  function utcWeekday(i) {
-    return newInterval(function(date) {
-      date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 7 - i) % 7);
-      date.setUTCHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setUTCDate(date.getUTCDate() + step * 7);
-    }, function(start, end) {
-      return (end - start) / durationWeek;
-    });
-  }
-
-  var utcSunday = utcWeekday(0);
-  var utcMonday = utcWeekday(1);
-  var utcTuesday = utcWeekday(2);
-  var utcWednesday = utcWeekday(3);
-  var utcThursday = utcWeekday(4);
-  var utcFriday = utcWeekday(5);
-  var utcSaturday = utcWeekday(6);
-
-  utcSunday.range;
-  utcMonday.range;
-  utcTuesday.range;
-  utcWednesday.range;
-  utcThursday.range;
-  utcFriday.range;
-  utcSaturday.range;
-
-  var utcMonth = newInterval(function(date) {
-    date.setUTCDate(1);
-    date.setUTCHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setUTCMonth(date.getUTCMonth() + step);
-  }, function(start, end) {
-    return end.getUTCMonth() - start.getUTCMonth() + (end.getUTCFullYear() - start.getUTCFullYear()) * 12;
-  }, function(date) {
-    return date.getUTCMonth();
-  });
-  utcMonth.range;
-
-  var utcYear = newInterval(function(date) {
-    date.setUTCMonth(0, 1);
-    date.setUTCHours(0, 0, 0, 0);
-  }, function(date, step) {
-    date.setUTCFullYear(date.getUTCFullYear() + step);
-  }, function(start, end) {
-    return end.getUTCFullYear() - start.getUTCFullYear();
-  }, function(date) {
-    return date.getUTCFullYear();
-  });
-
-  // An optimized implementation for this simple case.
-  utcYear.every = function(k) {
-    return !isFinite(k = Math.floor(k)) || !(k > 0) ? null : newInterval(function(date) {
-      date.setUTCFullYear(Math.floor(date.getUTCFullYear() / k) * k);
-      date.setUTCMonth(0, 1);
-      date.setUTCHours(0, 0, 0, 0);
-    }, function(date, step) {
-      date.setUTCFullYear(date.getUTCFullYear() + step * k);
-    });
-  };
-  utcYear.range;
-
-  function localDate(d) {
-    if (0 <= d.y && d.y < 100) {
-      var date = new Date(-1, d.m, d.d, d.H, d.M, d.S, d.L);
-      date.setFullYear(d.y);
-      return date;
-    }
-    return new Date(d.y, d.m, d.d, d.H, d.M, d.S, d.L);
-  }
-
-  function utcDate(d) {
-    if (0 <= d.y && d.y < 100) {
-      var date = new Date(Date.UTC(-1, d.m, d.d, d.H, d.M, d.S, d.L));
-      date.setUTCFullYear(d.y);
-      return date;
-    }
-    return new Date(Date.UTC(d.y, d.m, d.d, d.H, d.M, d.S, d.L));
-  }
-
-  function newDate(y, m, d) {
-    return {y: y, m: m, d: d, H: 0, M: 0, S: 0, L: 0};
-  }
-
-  function formatLocale(locale) {
-    var locale_dateTime = locale.dateTime,
-        locale_date = locale.date,
-        locale_time = locale.time,
-        locale_periods = locale.periods,
-        locale_weekdays = locale.days,
-        locale_shortWeekdays = locale.shortDays,
-        locale_months = locale.months,
-        locale_shortMonths = locale.shortMonths;
-
-    var periodRe = formatRe(locale_periods),
-        periodLookup = formatLookup(locale_periods),
-        weekdayRe = formatRe(locale_weekdays),
-        weekdayLookup = formatLookup(locale_weekdays),
-        shortWeekdayRe = formatRe(locale_shortWeekdays),
-        shortWeekdayLookup = formatLookup(locale_shortWeekdays),
-        monthRe = formatRe(locale_months),
-        monthLookup = formatLookup(locale_months),
-        shortMonthRe = formatRe(locale_shortMonths),
-        shortMonthLookup = formatLookup(locale_shortMonths);
-
-    var formats = {
-      "a": formatShortWeekday,
-      "A": formatWeekday,
-      "b": formatShortMonth,
-      "B": formatMonth,
-      "c": null,
-      "d": formatDayOfMonth,
-      "e": formatDayOfMonth,
-      "f": formatMicroseconds,
-      "g": formatYearISO,
-      "G": formatFullYearISO,
-      "H": formatHour24,
-      "I": formatHour12,
-      "j": formatDayOfYear,
-      "L": formatMilliseconds,
-      "m": formatMonthNumber,
-      "M": formatMinutes,
-      "p": formatPeriod,
-      "q": formatQuarter,
-      "Q": formatUnixTimestamp,
-      "s": formatUnixTimestampSeconds,
-      "S": formatSeconds,
-      "u": formatWeekdayNumberMonday,
-      "U": formatWeekNumberSunday,
-      "V": formatWeekNumberISO,
-      "w": formatWeekdayNumberSunday,
-      "W": formatWeekNumberMonday,
-      "x": null,
-      "X": null,
-      "y": formatYear,
-      "Y": formatFullYear,
-      "Z": formatZone,
-      "%": formatLiteralPercent
-    };
-
-    var utcFormats = {
-      "a": formatUTCShortWeekday,
-      "A": formatUTCWeekday,
-      "b": formatUTCShortMonth,
-      "B": formatUTCMonth,
-      "c": null,
-      "d": formatUTCDayOfMonth,
-      "e": formatUTCDayOfMonth,
-      "f": formatUTCMicroseconds,
-      "g": formatUTCYearISO,
-      "G": formatUTCFullYearISO,
-      "H": formatUTCHour24,
-      "I": formatUTCHour12,
-      "j": formatUTCDayOfYear,
-      "L": formatUTCMilliseconds,
-      "m": formatUTCMonthNumber,
-      "M": formatUTCMinutes,
-      "p": formatUTCPeriod,
-      "q": formatUTCQuarter,
-      "Q": formatUnixTimestamp,
-      "s": formatUnixTimestampSeconds,
-      "S": formatUTCSeconds,
-      "u": formatUTCWeekdayNumberMonday,
-      "U": formatUTCWeekNumberSunday,
-      "V": formatUTCWeekNumberISO,
-      "w": formatUTCWeekdayNumberSunday,
-      "W": formatUTCWeekNumberMonday,
-      "x": null,
-      "X": null,
-      "y": formatUTCYear,
-      "Y": formatUTCFullYear,
-      "Z": formatUTCZone,
-      "%": formatLiteralPercent
-    };
-
-    var parses = {
-      "a": parseShortWeekday,
-      "A": parseWeekday,
-      "b": parseShortMonth,
-      "B": parseMonth,
-      "c": parseLocaleDateTime,
-      "d": parseDayOfMonth,
-      "e": parseDayOfMonth,
-      "f": parseMicroseconds,
-      "g": parseYear,
-      "G": parseFullYear,
-      "H": parseHour24,
-      "I": parseHour24,
-      "j": parseDayOfYear,
-      "L": parseMilliseconds,
-      "m": parseMonthNumber,
-      "M": parseMinutes,
-      "p": parsePeriod,
-      "q": parseQuarter,
-      "Q": parseUnixTimestamp,
-      "s": parseUnixTimestampSeconds,
-      "S": parseSeconds,
-      "u": parseWeekdayNumberMonday,
-      "U": parseWeekNumberSunday,
-      "V": parseWeekNumberISO,
-      "w": parseWeekdayNumberSunday,
-      "W": parseWeekNumberMonday,
-      "x": parseLocaleDate,
-      "X": parseLocaleTime,
-      "y": parseYear,
-      "Y": parseFullYear,
-      "Z": parseZone,
-      "%": parseLiteralPercent
-    };
-
-    // These recursive directive definitions must be deferred.
-    formats.x = newFormat(locale_date, formats);
-    formats.X = newFormat(locale_time, formats);
-    formats.c = newFormat(locale_dateTime, formats);
-    utcFormats.x = newFormat(locale_date, utcFormats);
-    utcFormats.X = newFormat(locale_time, utcFormats);
-    utcFormats.c = newFormat(locale_dateTime, utcFormats);
-
-    function newFormat(specifier, formats) {
-      return function(date) {
-        var string = [],
-            i = -1,
-            j = 0,
-            n = specifier.length,
-            c,
-            pad,
-            format;
-
-        if (!(date instanceof Date)) date = new Date(+date);
-
-        while (++i < n) {
-          if (specifier.charCodeAt(i) === 37) {
-            string.push(specifier.slice(j, i));
-            if ((pad = pads[c = specifier.charAt(++i)]) != null) c = specifier.charAt(++i);
-            else pad = c === "e" ? " " : "0";
-            if (format = formats[c]) c = format(date, pad);
-            string.push(c);
-            j = i + 1;
-          }
-        }
-
-        string.push(specifier.slice(j, i));
-        return string.join("");
-      };
-    }
-
-    function newParse(specifier, Z) {
-      return function(string) {
-        var d = newDate(1900, undefined, 1),
-            i = parseSpecifier(d, specifier, string += "", 0),
-            week, day$1;
-        if (i != string.length) return null;
-
-        // If a UNIX timestamp is specified, return it.
-        if ("Q" in d) return new Date(d.Q);
-        if ("s" in d) return new Date(d.s * 1000 + ("L" in d ? d.L : 0));
-
-        // If this is utcParse, never use the local timezone.
-        if (Z && !("Z" in d)) d.Z = 0;
-
-        // The am-pm flag is 0 for AM, and 1 for PM.
-        if ("p" in d) d.H = d.H % 12 + d.p * 12;
-
-        // If the month was not specified, inherit from the quarter.
-        if (d.m === undefined) d.m = "q" in d ? d.q : 0;
-
-        // Convert day-of-week and week-of-year to day-of-year.
-        if ("V" in d) {
-          if (d.V < 1 || d.V > 53) return null;
-          if (!("w" in d)) d.w = 1;
-          if ("Z" in d) {
-            week = utcDate(newDate(d.y, 0, 1)), day$1 = week.getUTCDay();
-            week = day$1 > 4 || day$1 === 0 ? utcMonday.ceil(week) : utcMonday(week);
-            week = utcDay.offset(week, (d.V - 1) * 7);
-            d.y = week.getUTCFullYear();
-            d.m = week.getUTCMonth();
-            d.d = week.getUTCDate() + (d.w + 6) % 7;
-          } else {
-            week = localDate(newDate(d.y, 0, 1)), day$1 = week.getDay();
-            week = day$1 > 4 || day$1 === 0 ? monday.ceil(week) : monday(week);
-            week = day.offset(week, (d.V - 1) * 7);
-            d.y = week.getFullYear();
-            d.m = week.getMonth();
-            d.d = week.getDate() + (d.w + 6) % 7;
-          }
-        } else if ("W" in d || "U" in d) {
-          if (!("w" in d)) d.w = "u" in d ? d.u % 7 : "W" in d ? 1 : 0;
-          day$1 = "Z" in d ? utcDate(newDate(d.y, 0, 1)).getUTCDay() : localDate(newDate(d.y, 0, 1)).getDay();
-          d.m = 0;
-          d.d = "W" in d ? (d.w + 6) % 7 + d.W * 7 - (day$1 + 5) % 7 : d.w + d.U * 7 - (day$1 + 6) % 7;
-        }
-
-        // If a time zone is specified, all fields are interpreted as UTC and then
-        // offset according to the specified time zone.
-        if ("Z" in d) {
-          d.H += d.Z / 100 | 0;
-          d.M += d.Z % 100;
-          return utcDate(d);
-        }
-
-        // Otherwise, all fields are in local time.
-        return localDate(d);
-      };
-    }
-
-    function parseSpecifier(d, specifier, string, j) {
-      var i = 0,
-          n = specifier.length,
-          m = string.length,
-          c,
-          parse;
-
-      while (i < n) {
-        if (j >= m) return -1;
-        c = specifier.charCodeAt(i++);
-        if (c === 37) {
-          c = specifier.charAt(i++);
-          parse = parses[c in pads ? specifier.charAt(i++) : c];
-          if (!parse || ((j = parse(d, string, j)) < 0)) return -1;
-        } else if (c != string.charCodeAt(j++)) {
-          return -1;
-        }
-      }
-
-      return j;
-    }
-
-    function parsePeriod(d, string, i) {
-      var n = periodRe.exec(string.slice(i));
-      return n ? (d.p = periodLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseShortWeekday(d, string, i) {
-      var n = shortWeekdayRe.exec(string.slice(i));
-      return n ? (d.w = shortWeekdayLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseWeekday(d, string, i) {
-      var n = weekdayRe.exec(string.slice(i));
-      return n ? (d.w = weekdayLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseShortMonth(d, string, i) {
-      var n = shortMonthRe.exec(string.slice(i));
-      return n ? (d.m = shortMonthLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseMonth(d, string, i) {
-      var n = monthRe.exec(string.slice(i));
-      return n ? (d.m = monthLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
-    }
-
-    function parseLocaleDateTime(d, string, i) {
-      return parseSpecifier(d, locale_dateTime, string, i);
-    }
-
-    function parseLocaleDate(d, string, i) {
-      return parseSpecifier(d, locale_date, string, i);
-    }
-
-    function parseLocaleTime(d, string, i) {
-      return parseSpecifier(d, locale_time, string, i);
-    }
-
-    function formatShortWeekday(d) {
-      return locale_shortWeekdays[d.getDay()];
-    }
-
-    function formatWeekday(d) {
-      return locale_weekdays[d.getDay()];
-    }
-
-    function formatShortMonth(d) {
-      return locale_shortMonths[d.getMonth()];
-    }
-
-    function formatMonth(d) {
-      return locale_months[d.getMonth()];
-    }
-
-    function formatPeriod(d) {
-      return locale_periods[+(d.getHours() >= 12)];
-    }
-
-    function formatQuarter(d) {
-      return 1 + ~~(d.getMonth() / 3);
-    }
-
-    function formatUTCShortWeekday(d) {
-      return locale_shortWeekdays[d.getUTCDay()];
-    }
-
-    function formatUTCWeekday(d) {
-      return locale_weekdays[d.getUTCDay()];
-    }
-
-    function formatUTCShortMonth(d) {
-      return locale_shortMonths[d.getUTCMonth()];
-    }
-
-    function formatUTCMonth(d) {
-      return locale_months[d.getUTCMonth()];
-    }
-
-    function formatUTCPeriod(d) {
-      return locale_periods[+(d.getUTCHours() >= 12)];
-    }
-
-    function formatUTCQuarter(d) {
-      return 1 + ~~(d.getUTCMonth() / 3);
-    }
-
-    return {
-      format: function(specifier) {
-        var f = newFormat(specifier += "", formats);
-        f.toString = function() { return specifier; };
-        return f;
-      },
-      parse: function(specifier) {
-        var p = newParse(specifier += "", false);
-        p.toString = function() { return specifier; };
-        return p;
-      },
-      utcFormat: function(specifier) {
-        var f = newFormat(specifier += "", utcFormats);
-        f.toString = function() { return specifier; };
-        return f;
-      },
-      utcParse: function(specifier) {
-        var p = newParse(specifier += "", true);
-        p.toString = function() { return specifier; };
-        return p;
-      }
-    };
-  }
-
-  var pads = {"-": "", "_": " ", "0": "0"},
-      numberRe = /^\s*\d+/, // note: ignores next directive
-      percentRe = /^%/,
-      requoteRe = /[\\^$*+?|[\]().{}]/g;
-
-  function pad(value, fill, width) {
-    var sign = value < 0 ? "-" : "",
-        string = (sign ? -value : value) + "",
-        length = string.length;
-    return sign + (length < width ? new Array(width - length + 1).join(fill) + string : string);
-  }
-
-  function requote(s) {
-    return s.replace(requoteRe, "\\$&");
-  }
-
-  function formatRe(names) {
-    return new RegExp("^(?:" + names.map(requote).join("|") + ")", "i");
-  }
-
-  function formatLookup(names) {
-    return new Map(names.map((name, i) => [name.toLowerCase(), i]));
-  }
-
-  function parseWeekdayNumberSunday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 1));
-    return n ? (d.w = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekdayNumberMonday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 1));
-    return n ? (d.u = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekNumberSunday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.U = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekNumberISO(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.V = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseWeekNumberMonday(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.W = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseFullYear(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 4));
-    return n ? (d.y = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseYear(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.y = +n[0] + (+n[0] > 68 ? 1900 : 2000), i + n[0].length) : -1;
-  }
-
-  function parseZone(d, string, i) {
-    var n = /^(Z)|([+-]\d\d)(?::?(\d\d))?/.exec(string.slice(i, i + 6));
-    return n ? (d.Z = n[1] ? 0 : -(n[2] + (n[3] || "00")), i + n[0].length) : -1;
-  }
-
-  function parseQuarter(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 1));
-    return n ? (d.q = n[0] * 3 - 3, i + n[0].length) : -1;
-  }
-
-  function parseMonthNumber(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.m = n[0] - 1, i + n[0].length) : -1;
-  }
-
-  function parseDayOfMonth(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.d = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseDayOfYear(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 3));
-    return n ? (d.m = 0, d.d = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseHour24(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.H = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseMinutes(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.M = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseSeconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 2));
-    return n ? (d.S = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseMilliseconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 3));
-    return n ? (d.L = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseMicroseconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i, i + 6));
-    return n ? (d.L = Math.floor(n[0] / 1000), i + n[0].length) : -1;
-  }
-
-  function parseLiteralPercent(d, string, i) {
-    var n = percentRe.exec(string.slice(i, i + 1));
-    return n ? i + n[0].length : -1;
-  }
-
-  function parseUnixTimestamp(d, string, i) {
-    var n = numberRe.exec(string.slice(i));
-    return n ? (d.Q = +n[0], i + n[0].length) : -1;
-  }
-
-  function parseUnixTimestampSeconds(d, string, i) {
-    var n = numberRe.exec(string.slice(i));
-    return n ? (d.s = +n[0], i + n[0].length) : -1;
-  }
-
-  function formatDayOfMonth(d, p) {
-    return pad(d.getDate(), p, 2);
-  }
-
-  function formatHour24(d, p) {
-    return pad(d.getHours(), p, 2);
-  }
-
-  function formatHour12(d, p) {
-    return pad(d.getHours() % 12 || 12, p, 2);
-  }
-
-  function formatDayOfYear(d, p) {
-    return pad(1 + day.count(year(d), d), p, 3);
-  }
-
-  function formatMilliseconds(d, p) {
-    return pad(d.getMilliseconds(), p, 3);
-  }
-
-  function formatMicroseconds(d, p) {
-    return formatMilliseconds(d, p) + "000";
-  }
-
-  function formatMonthNumber(d, p) {
-    return pad(d.getMonth() + 1, p, 2);
-  }
-
-  function formatMinutes(d, p) {
-    return pad(d.getMinutes(), p, 2);
-  }
-
-  function formatSeconds(d, p) {
-    return pad(d.getSeconds(), p, 2);
-  }
-
-  function formatWeekdayNumberMonday(d) {
-    var day = d.getDay();
-    return day === 0 ? 7 : day;
-  }
-
-  function formatWeekNumberSunday(d, p) {
-    return pad(sunday.count(year(d) - 1, d), p, 2);
-  }
-
-  function dISO(d) {
-    var day = d.getDay();
-    return (day >= 4 || day === 0) ? thursday(d) : thursday.ceil(d);
-  }
-
-  function formatWeekNumberISO(d, p) {
-    d = dISO(d);
-    return pad(thursday.count(year(d), d) + (year(d).getDay() === 4), p, 2);
-  }
-
-  function formatWeekdayNumberSunday(d) {
-    return d.getDay();
-  }
-
-  function formatWeekNumberMonday(d, p) {
-    return pad(monday.count(year(d) - 1, d), p, 2);
-  }
-
-  function formatYear(d, p) {
-    return pad(d.getFullYear() % 100, p, 2);
-  }
-
-  function formatYearISO(d, p) {
-    d = dISO(d);
-    return pad(d.getFullYear() % 100, p, 2);
-  }
-
-  function formatFullYear(d, p) {
-    return pad(d.getFullYear() % 10000, p, 4);
-  }
-
-  function formatFullYearISO(d, p) {
-    var day = d.getDay();
-    d = (day >= 4 || day === 0) ? thursday(d) : thursday.ceil(d);
-    return pad(d.getFullYear() % 10000, p, 4);
-  }
-
-  function formatZone(d) {
-    var z = d.getTimezoneOffset();
-    return (z > 0 ? "-" : (z *= -1, "+"))
-        + pad(z / 60 | 0, "0", 2)
-        + pad(z % 60, "0", 2);
-  }
-
-  function formatUTCDayOfMonth(d, p) {
-    return pad(d.getUTCDate(), p, 2);
-  }
-
-  function formatUTCHour24(d, p) {
-    return pad(d.getUTCHours(), p, 2);
-  }
-
-  function formatUTCHour12(d, p) {
-    return pad(d.getUTCHours() % 12 || 12, p, 2);
-  }
-
-  function formatUTCDayOfYear(d, p) {
-    return pad(1 + utcDay.count(utcYear(d), d), p, 3);
-  }
-
-  function formatUTCMilliseconds(d, p) {
-    return pad(d.getUTCMilliseconds(), p, 3);
-  }
-
-  function formatUTCMicroseconds(d, p) {
-    return formatUTCMilliseconds(d, p) + "000";
-  }
-
-  function formatUTCMonthNumber(d, p) {
-    return pad(d.getUTCMonth() + 1, p, 2);
-  }
-
-  function formatUTCMinutes(d, p) {
-    return pad(d.getUTCMinutes(), p, 2);
-  }
-
-  function formatUTCSeconds(d, p) {
-    return pad(d.getUTCSeconds(), p, 2);
-  }
-
-  function formatUTCWeekdayNumberMonday(d) {
-    var dow = d.getUTCDay();
-    return dow === 0 ? 7 : dow;
-  }
-
-  function formatUTCWeekNumberSunday(d, p) {
-    return pad(utcSunday.count(utcYear(d) - 1, d), p, 2);
-  }
-
-  function UTCdISO(d) {
-    var day = d.getUTCDay();
-    return (day >= 4 || day === 0) ? utcThursday(d) : utcThursday.ceil(d);
-  }
-
-  function formatUTCWeekNumberISO(d, p) {
-    d = UTCdISO(d);
-    return pad(utcThursday.count(utcYear(d), d) + (utcYear(d).getUTCDay() === 4), p, 2);
-  }
-
-  function formatUTCWeekdayNumberSunday(d) {
-    return d.getUTCDay();
-  }
-
-  function formatUTCWeekNumberMonday(d, p) {
-    return pad(utcMonday.count(utcYear(d) - 1, d), p, 2);
-  }
-
-  function formatUTCYear(d, p) {
-    return pad(d.getUTCFullYear() % 100, p, 2);
-  }
-
-  function formatUTCYearISO(d, p) {
-    d = UTCdISO(d);
-    return pad(d.getUTCFullYear() % 100, p, 2);
-  }
-
-  function formatUTCFullYear(d, p) {
-    return pad(d.getUTCFullYear() % 10000, p, 4);
-  }
-
-  function formatUTCFullYearISO(d, p) {
-    var day = d.getUTCDay();
-    d = (day >= 4 || day === 0) ? utcThursday(d) : utcThursday.ceil(d);
-    return pad(d.getUTCFullYear() % 10000, p, 4);
-  }
-
-  function formatUTCZone() {
-    return "+0000";
-  }
-
-  function formatLiteralPercent() {
-    return "%";
-  }
-
-  function formatUnixTimestamp(d) {
-    return +d;
-  }
-
-  function formatUnixTimestampSeconds(d) {
-    return Math.floor(+d / 1000);
-  }
-
-  var locale;
-  var timeFormat;
-  var utcFormat;
-  var utcParse;
-
-  defaultLocale({
-    dateTime: "%x, %X",
-    date: "%-m/%-d/%Y",
-    time: "%-I:%M:%S %p",
-    periods: ["AM", "PM"],
-    days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-    shortDays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-    months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-    shortMonths: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-  });
-
-  function defaultLocale(definition) {
-    locale = formatLocale(definition);
-    timeFormat = locale.format;
-    utcFormat = locale.utcFormat;
-    utcParse = locale.utcParse;
-    return locale;
-  }
-
-  var isoSpecifier = "%Y-%m-%dT%H:%M:%S.%LZ";
-
-  function formatIsoNative(date) {
-    return date.toISOString();
-  }
-
-  Date.prototype.toISOString
-      ? formatIsoNative
-      : utcFormat(isoSpecifier);
-
-  function parseIsoNative(string) {
-    var date = new Date(string);
-    return isNaN(date) ? null : date;
-  }
-
-  +new Date("2000-01-01T00:00:00.000Z")
-      ? parseIsoNative
-      : utcParse(isoSpecifier);
-
-  function isArrayIndex(x) {
-  	return (parseInt(x).toString() === "" + x) && (x >= 0);
-  }
-
-
-  function validateArrayBindings(column_bindings, columns_bindings) {
-  	var mssg;
-
-  	var column_ok = Object.keys(column_bindings).every(function(key) {
-  		return isArrayIndex(column_bindings[key]);
-  	});
-
-  	if (!column_ok) {
-  		mssg = "All column_bindings values should be non-negative integers";
-  		throw new TypeError(mssg);
-  	}
-
-  	var columns_ok = Object.keys(columns_bindings).every(function(key) {
-  		var value = columns_bindings[key];
-  		return Array.isArray(value) ? value.every(isArrayIndex) : isArrayIndex(value);
-  	});
-
-  	if (!columns_ok) {
-  		mssg = "All columns_bindings values should be non-negative integers or arrays thereof";
-  		throw new TypeError(mssg);
-  	}
-  }
-
-  function flourishifyData(input_data, column_bindings, columns_bindings) {
-  	return input_data.map(function(d) {
-  		var obj = {};
-
-  		Object.keys(column_bindings).forEach(function(key) {
-  			obj[key] = d[column_bindings[key]];
-  		});
-
-  		Object.keys(columns_bindings).forEach(function(key) {
-  			var a = columns_bindings[key];
-  			if (!Array.isArray(a)) a = [a];
-  			obj[key] = a.map(function(inner_key) { return d[inner_key]; });
-  		});
-
-  		return obj;
-  	});
-  }
-
-
-  function flourishifyObjects(input_data, column_bindings, columns_bindings) {
-  	column_bindings = column_bindings || {};
-  	columns_bindings = columns_bindings || {};
-
-  	var data = flourishifyData(input_data, column_bindings, columns_bindings);
-  	data.column_names = {};
-
-  	Object.keys(column_bindings).forEach(function(key) {
-  		data.column_names[key] = column_bindings[key];
-  	});
-
-  	Object.keys(columns_bindings).forEach(function(key) {
-  		var a = columns_bindings[key];
-  		data.column_names[key] = Array.isArray(a) ? a : [a];
-  	});
-
-  	return data;
-  }
-
-
-  function flourishifyArrays(input_data, column_bindings, columns_bindings) {
-  	column_bindings = column_bindings || {};
-  	columns_bindings = columns_bindings || {};
-  	validateArrayBindings(column_bindings, columns_bindings);
-  	var old_headers = input_data[0];
-
-  	var data = flourishifyData(input_data.slice(1), column_bindings, columns_bindings);
-  	data.column_names = {};
-
-  	Object.keys(column_bindings).forEach(function(key) {
-  		data.column_names[key] = old_headers[column_bindings[key]];
-  	});
-
-  	Object.keys(columns_bindings).forEach(function(key) {
-  		var a = columns_bindings[key];
-  		data.column_names[key] = (Array.isArray(a) ? a : [a]).map(function(k) {
-  			return old_headers[k];
-  		});
-  	});
-
-  	return data;
-  }
-
-
-  function flourishify(input_data, column_bindings, columns_bindings) {
-  	var fls = Array.isArray(input_data[0]) ? flourishifyArrays : flourishifyObjects;
-  	return fls(input_data, column_bindings, columns_bindings);
-  }
-
-  /* * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * */
-   
-  var localizations = {
-  	"de": {
-  		credits: {
-  			"default": "Erstellt mit Flourish",
-  		},
-  	},
-  	"en": {
-  		credits: {
-  			"default": "A Flourish data visualization",
-  			"chart": "A Flourish chart",
-  			"map": { text: "A Flourish map", url: "https://flourish.studio/visualisations/maps/" },
-  			"survey": { text: "A Flourish survey visualization", url: "https://flourish.studio/visualisations/survey-data/" },
-  			"network": { text: "A Flourish network chart", url: "https://flourish.studio/visualisations/network-charts/" },
-  			"scatter": { text: "A Flourish scatter chart", url: "https://flourish.studio/visualisations/scatter-charts/" },
-  			"sankey": { text: "A Flourish sankey chart", url: "https://flourish.studio/visualisations/sankey-charts/" },
-  			"quiz": "A Flourish quiz",
-  			"bar_race": { text: "A Flourish bar chart race", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  			"bar-chart-race": { text: "A Flourish bar chart race", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  			"cards": "Interactive content by Flourish",
-  			"chord": "A Flourish chord diagram",
-  			"election": "A Flourish election chart",
-  			"globe": { text: "A Flourish connections globe", url: "https://flourish.studio/visualisations/maps/" },
-  			"hierarchy": { text: "A Flourish hierarchy chart", url: "https://flourish.studio/visualisations/treemaps/" },
-  			"line-chart-race": "A Flourish line chart race",
-  			"parliament": "A Flourish election chart",
-  			"photo-slider": "Interactive content by Flourish",
-  			"slope": { text: "A Flourish slope chart", url: "https://flourish.studio/visualisations/slope-charts/" },
-  			"sports": "A Flourish sports visualization",
-  			"explore": "A Flourish data visualization",
-  			"word-cloud": "A Flourish data visualization"
-  		}
-  	},
-  	"es": {
-  		credits: {
-  			"default": "Creado con Flourish",
-  			"bar_race": { text: "Créé avec Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  			"bar-chart-race": { text: "Créé avec Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  		},
-  	},
-  	"fr": {
-  		credits: {
-  			"default": "Créé avec Flourish",
-  			"bar_race": { text: "Créé avec Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  			"bar-chart-race": { text: "Créé avec Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  		},
-  	},
-  	"it": {
-  		credits: {
-  			"default": "Creato con Flourish",
-  			"bar_race": { text: "Creato con Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  			"bar-chart-race": { text: "Creato con Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  		}
-  	},
-  	"mi": {
-  		credits: {
-  			"default": "Hangaia ki te Flourish",
-  			"bar_race": { text: "Hangaia ki te Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  			"bar-chart-race": { text: "Hangaia ki te Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  		},
-  	},
-  	"nl": {
-  		credits: {
-  			"default": "Gemaakt met Flourish",
-  			"bar_race": { text: "Gemaakt met Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  			"bar-chart-race": { text: "Gemaakt met Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/" },
-  		},
-  	},
-  	"pt": {
-  		"default": "Feito com Flourish",
-  		"bar_race": { text: "Feito com Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/"},
-  		"bar-chart-race": { text: "Feito com Flourish", url: "https://flourish.studio/visualisations/bar-chart-race/"}
-  	}
-  };
-
-  /* * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * */
-
-  function createFlourishCredit(credit_url, query_string, public_url, credit_text) {
-  	credit_url = credit_url || "https://flourish.studio",
-  	query_string = query_string || "?utm_source=api&utm_campaign=" + window.location.href,
-  	public_url = public_url || "https://public.flourish.studio/",
-  	credit_text = credit_text || "A Flourish data visualisation";
-
-  	var credit = document.createElement("div");
-  	credit.setAttribute("class", "flourish-credit");
-  	credit.setAttribute("style", "width:100%!important;margin:0 0 4px!important;text-align:right!important;font-family:Helvetica,sans-serif!important;color:#888!important;font-size:11px!important;font-weight:bold!important;font-style:normal!important;-webkit-font-smoothing:antialiased!important;box-shadow:none!important;");
-
-  	var a = document.createElement("a");
-  	a.setAttribute("href", credit_url + query_string);
-  	a.setAttribute("target", "_top");
-  	a.setAttribute("style", "display:inline-block!important;text-decoration:none!important;font:inherit!important;color:inherit!important;border:none!important;margin:0 5px!important;box-shadow:none!important;");
-  	credit.appendChild(a);
-
-  	var img = document.createElement("img");
-  	img.setAttribute("alt", "Flourish logo");
-  	img.setAttribute("src", public_url + "resources/bosh.svg");
-  	img.setAttribute("style", "font:inherit!important;width:auto!important;height:12px!important;border:none!important;margin:0 2px 0!important;vertical-align:middle!important;display:inline-block!important;box-shadow:none!important;");
-  	a.appendChild(img);
-
-  	var span = document.createElement("span");
-  	span.setAttribute("style", "font:inherit!important;color:#888!important;vertical-align:middle!important;display:inline-block!important;box-shadow:none!important;");
-  	span.appendChild(document.createTextNode(credit_text));
-  	a.appendChild(span);
-
-  	return credit;
-  }
-
-  function getLocalizedCreditTextAndUrl(lang, credit_key) {
-  	var credit_text, credit_url;
-  	lang = lang || "en", credit_key = credit_key || "";
-  	credit_text = localizations[lang].credits[credit_key] || localizations.en.credits[credit_key] || localizations.en.credits.default;
-  	if (typeof credit_text == "object") {
-  		if (credit_text.url) credit_url = credit_text.url;
-  		credit_text = credit_text.text;
-  	}
-  	return {
-  		credit_text: credit_text,
-  		credit_url: credit_url
-  	};
-  }
-
-  /* * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * */
-   
-  // Embedded code - must work in IE
-  var enabled = false;
-
-  function getLocationData() {
-  	var data = {};
-  	if (window._Flourish_template_id) {
-  		data.template_id = window._Flourish_template_id;
-  	}
-  	if (window.Flourish && window.Flourish.app && window.Flourish.app.loaded_template_id) {
-  		data.template_id = window.Flourish.app.loaded_template_id;
-  	}
-
-  	if (window._Flourish_visualisation_id) {
-  		data.visualisation_id = window._Flourish_visualisation_id;
-  	}
-  	if (window.Flourish && window.Flourish.app && window.Flourish.app.loaded_visualisation) {
-  		data.visualisation_id = window.Flourish.app.loaded_visualisation.id;
-  	}
-
-  	if (window.Flourish && window.Flourish.app && window.Flourish.app.story) {
-  		data.story_id = window.Flourish.app.story.id;
-  		data.slide_count = window.Flourish.app.story.slides.length;
-  	}
-
-  	if (window.Flourish && window.Flourish.app && window.Flourish.app.current_slide) {
-  		// One indexed
-  		data.slide_index = window.Flourish.app.current_slide.index + 1;
-  	}
-  	return data;
-  }
-
-  function sendCustomerAnalyticsMessage(message) {
-  	if (!enabled) return;
-  	if (window.top === window.self) return;
-
-  	var embedded_window = window;
-  	if (embedded_window.location.pathname === "srcdoc") embedded_window = embedded_window.parent;
-
-  	var location_data = getLocationData();
-
-  	var message_with_metadata = {
-  		sender: "Flourish",
-  		method: "customerAnalytics"
-  	};
-
-  	for (var key in location_data) {
-  		if (location_data.hasOwnProperty(key)) {
-  			message_with_metadata[key] = location_data[key];
-  		}
-  	}
-
-  	for (var key in message) {
-  		if (message.hasOwnProperty(key)) {
-  			message_with_metadata[key] = message[key];
-  		}
-  	}
-
-  	embedded_window.parent.postMessage(JSON.stringify(message_with_metadata), "*");
-  }
-
-  function addAnalyticsListener(callback) {
-  	if (typeof callback !== "function") {
-  		throw new Error("Analytics callback is not a function");
-  	}
-  	window.Flourish._analytics_listeners.push(callback);
-  }
-
-  function initCustomerAnalytics() {
-  	enabled = true;
-
-  	var events = [
-  		{
-  			event_name: "click",
-  			action_name: "click",
-  			use_capture: true
-  		},
-  		{
-  			event_name: "keydown",
-  			action_name: "key_down",
-  			use_capture: true
-  		},
-  		{
-  			event_name: "mouseenter",
-  			action_name: "mouse_enter",
-  			use_capture: false
-  		},
-  		{
-  			event_name: "mouseleave",
-  			action_name: "mouse_leave",
-  			use_capture: false
-  		}
-  	];
-
-  	events.forEach(function(event) {
-  		document.body.addEventListener(event.event_name, function() {
-  			sendCustomerAnalyticsMessage({
-  				action: event.action_name
-  			});
-  		}, event.use_capture);
-  	});
-  }
-
-  /* * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * */
-
-  function parseQueryParams() {
-  	// Query string parameters
-  	var location = window.location;
-  	// We use srcdoc to load the decrypted content for password-protected projects,
-  	// which creates a nested window.
-  	if (location.href == "about:srcdoc") location = window.parent.location;
-  	var params = {};
-  	(function (query, re, match) {
-  		while (match = re.exec(query)) {
-  			params[decodeURIComponent(match[1])] = decodeURIComponent(match[2]);
-  		}
-  	})(location.search.substring(1).replace(/\+/g, "%20"), /([^&=]+)=?([^&]*)/g);
-  	return params;
-  }
-
-  /* * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * *
-   * * * * * * GENERATED FILE - DO NOT EDIT * * * * * */
-
-  var is_fixed_height;
-  var is_amp;
-
-  function isFixedHeight() {
-  	if (is_fixed_height == undefined) {
-  		var params = parseQueryParams();
-  		// "referrer" in params implies this is an Embedly embed
-  		// Check whether embedding site is known to support dynamic resizing
-  		if ("referrer" in params) is_fixed_height = /^https:\/\/medium.com\//.test(params.referrer);
-  		else is_fixed_height = !("auto" in params);
-  	}
-  	return is_fixed_height;
-  }
-
-  function getHeightForBreakpoint(width) {
-  	var breakpoint_width = width || window.innerWidth;
-  	if (breakpoint_width > 999) return 650;
-  	if (breakpoint_width > 599) return 575;
-  	return 400;
-  }
-
-  function notifyParentWindow(height, opts) {
-  	if (window.top === window.self) return;
-  	var embedded_window = window;
-  	if (embedded_window.location.pathname == "srcdoc") embedded_window = embedded_window.parent;
-  	if (is_amp) {
-  		// Message is not stringified for AMP
-  		height = parseInt(height, 10);
-  		embedded_window.parent.postMessage({
-  			sentinel: "amp",
-  			type: "embed-size",
-  			height: height,
-  		}, "*");
-  		return;
-  	}
-  	var message = {
-  		sender: "Flourish",
-  		context: "iframe.resize",
-  		method: "resize", // backwards compatibility
-  		height: height,
-  		src: embedded_window.location.toString(),
-  	};
-  	if (opts) {
-  		for (var name in opts) message[name] = opts[name];
-  	}
-  	embedded_window.parent.postMessage(JSON.stringify(message), "*");
-  }
-
-  function isSafari() {
-  	// Some example user agents:
-  	// Safari iOS: Mozilla/5.0 (iPhone; CPU iPhone OS 12_1_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Mobile/15E148 Safari/604.1
-  	// Chrome OS X: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36
-  	// Embedded WkWebview on iOS: Mozilla/5.0 (iPhone; CPU iPhone OS 12_1_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/16D5039a
-  	return (navigator.userAgent.indexOf("Safari") !== -1 || navigator.userAgent.indexOf("iPhone") !== -1) && navigator.userAgent.indexOf("Chrome") == -1;
-  }
-
-  function startEventListeners(callback) {
-  	window.addEventListener("message", function(event) {
-  		// event.source is null when the message is sent by an extension
-  		// https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage#Using_window.postMessage_in_extensions
-  		if (event.source == null) return;
-  		if (event.origin !== document.location.origin && !event.origin.match(/\/\/localhost:\d+$|\/\/flourish-api\.com$|\.flourish\.(?:local(:\d+)?|net|rocks|studio)$|\.uri\.sh$/)) return;
-  		var message;
-  		try {
-  			message = JSON.parse(event.data);
-  		}
-  		catch (e) {
-  			console.warn("Unexpected non-JSON message: " + JSON.stringify(event.data));
-  			return;
-  		}
-  		if (message.sender !== "Flourish") return;
-  		var frames = document.querySelectorAll("iframe");
-  		for (var i=0; i < frames.length; i++) {
-  			if (frames[i].contentWindow == event.source || frames[i].contentWindow == event.source.parent) {
-  				callback(message, frames[i]);
-  				return;
-  			}
-  		}
-  		console.warn("could not find frame", message);
-  	});
-
-  	if (isSafari()) {
-  		window.addEventListener("resize", onSafariWindowResize);
-  		onSafariWindowResize();
-  	}
-  }
-
-  function onSafariWindowResize() {
-  	// Ensure all iframes without explicit width attribute are sized to fit their container
-  	var containers = document.querySelectorAll(".flourish-embed");
-  	for (var i=0; i < containers.length; i++) {
-  		var container = containers[i];
-  		if (container.getAttribute("data-width")) continue;
-  		var iframe = container.querySelector("iframe");
-  		// When embeds are dynamically loaded, we might have a container without a
-  		// loaded iframe yet
-  		if (!iframe) continue;
-  		var computed_style = window.getComputedStyle(container);
-  		var width = container.offsetWidth - parseFloat(computed_style.paddingLeft) - parseFloat(computed_style.paddingRight);
-  		iframe.style.width = width + "px";
-  	}
-  }
-
-  function createEmbedIframe(embed_url, container, width, height, play_on_load) {
-  	var iframe = document.createElement("iframe");
-  	iframe.setAttribute("scrolling", "no");
-  	iframe.setAttribute("frameborder", "0");
-  	iframe.setAttribute("title", "Interactive or visual content");
-  	iframe.setAttribute("sandbox", "allow-same-origin allow-forms allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation");
-  	container.appendChild(iframe);
-
-  	// If the iframe doesn't have an offset parent, either the element or a parent
-  	// is set to display: none. This can cause problems with visualisation loading, so
-  	// we need to poll for the iframe being displayed before loading the visualisation.
-  	// FIXME: In Chrome, fixed position elements also return null for `offsetParent`.
-  	// The chances of an embed which is both position: fixed and display: none are
-  	// pretty small, so fuhgeddaboudit . If it's an issue in the future, we'll have to
-  	// recurse through the parent elements to make sure the iframe is displaying.
-  	if (iframe.offsetParent || getComputedStyle(iframe).position === "fixed") {
-  		setIframeContent(embed_url, container, iframe, width, height, play_on_load);
-  	}
-  	else {
-  		var poll_item = {
-  			embed_url: embed_url,
-  			container: container,
-  			iframe: iframe,
-  			width: width,
-  			height: height,
-  			play_on_load: play_on_load
-  		};
-  		// If this is the first embed on the page which is isn't displayed, set up a
-  		// list of hidden iframes to poll
-  		if (!window._flourish_poll_items) {
-  			window._flourish_poll_items = [poll_item];
-  		}
-  		else {
-  			// Otherwise, add this to the list of iframes which are being polled
-  			window._flourish_poll_items.push(poll_item);
-  		}
-
-  		if (window._flourish_poll_items.length > 1) {
-  			// If there were already items in the array then we have already started
-  			// polling in a different embed script, so we can return. This iframe will
-  			// have its contents set by the other embed script.
-  			return iframe;
-  		}
-
-  		// Poll to see whether any of the iframes have started displaying
-  		var interval = setInterval(function() {
-  			window._flourish_poll_items = window._flourish_poll_items.filter(function(item) {
-  				if (!item.iframe.offsetParent) {
-  					// It's still not displaying, so return true to leave it in the array
-  					return true;
-  				}
-
-  				// It's displaying, so set the content, and return false to remove it from
-  				// the array
-  				setIframeContent(item.embed_url, item.container, item.iframe, item.width, item.height, item.play_on_load);
-  				return false;
-  			});
-
-  			if (!window._flourish_poll_items.length) {
-  				// All of the iframes are displaying, so we can stop polling. If another
-  				// embed is added later, a new interval will be created by that embed script.
-  				clearInterval(interval);
-  			}
-  		}, 500);
-  	}
-  	return iframe;
-  }
-
-  function setIframeContent(embed_url, container, iframe, width, height, play_on_load) {
-  	var width_in_px;
-  	if (width && typeof width === "number") {
-  		width_in_px = width;
-  		width = "" + width + "px";
-  	}
-  	// The regular expression below detects widths that have been explicitly
-  	// expressed in px units. (It turns out CSS is more complicated than you may
-  	// have realised.)
-  	else if (width && width.match(/^[ \t\r\n\f]*([+-]?\d+|\d*\.\d+(?:[eE][+-]?\d+)?)(?:\\?[Pp]|\\0{0,4}[57]0(?:\r\n|[ \t\r\n\f])?)(?:\\?[Xx]|\\0{0,4}[57]8(?:\r\n|[ \t\r\n\f])?)[ \t\r\n\f]*$/)) {
-  		width_in_px = parseFloat(width);
-  	}
-
-  	if (height && typeof height === "number") height = "" + height + "px";
-  	// Odd design decision in Safari means need to set fixed width rather than %
-  	// as will try and size iframe to content otherwise. Must also set scrolling=no
-  	if (width) iframe.style.width = width;
-  	else if (isSafari()) iframe.style.width = container.offsetWidth + "px";
-  	else iframe.style.width = "100%";
-
-  	var fixed_height = !!height;
-  	if (!fixed_height) {
-  		if (embed_url.match(/\?/)) embed_url += "&auto=1";
-  		else embed_url += "?auto=1";
-  		// For initial height, use our standard breakpoints, based on the explicit
-  		// pixel width if we know it, or the iframe's measured width if not.
-  		height = getHeightForBreakpoint(width_in_px || iframe.offsetWidth) + "px";
-  	}
-
-  	if (height) {
-  		if (height.charAt(height.length - 1) === "%") {
-  			height = (parseFloat(height) / 100) * container.parentNode.offsetHeight + "px";
-  		}
-  		iframe.style.height = height;
-  	}
-
-  	iframe.setAttribute("src", embed_url + (play_on_load ? "#play-on-load" : ""));
-
-  	return iframe;
-  }
-
-  function initEmbedding() {
-  	is_amp = window.location.hash == "#amp=1";
-  	return {
-  		createEmbedIframe: createEmbedIframe,
-  		isFixedHeight: isFixedHeight,
-  		getHeightForBreakpoint: getHeightForBreakpoint,
-  		startEventListeners: startEventListeners,
-  		notifyParentWindow: notifyParentWindow,
-  		isSafari: isSafari,
-  		initCustomerAnalytics: initCustomerAnalytics,
-  		addAnalyticsListener: addAnalyticsListener,
-  		sendCustomerAnalyticsMessage: sendCustomerAnalyticsMessage
-  	};
-  }
-
-  var VERSION = "4.5.0";
-
-  var DEFAULTS = {
-  	api_url: "https://flourish-api.com/api/v1/live",
-  	public_bucket_prefix: "https://public.flourish.studio/"
-  };
-
-  // Properties that cannot (yet) be changed on update():
-  var IMMUTABLE_PROPERTIES = [
-  	"api_key", "template", "version", "container", "base_visualisation_id"
-  ];
-
-  function stringify(o) {
-  	if (!o && o !== 0) return "";
-  	else if (typeof o === "object") {
-  		for (var k in o) o[k] = stringify(o[k]);
-  		return o;
-  	}
-  	else return "" + o;
-  }
-
-  function shallowCopy(o) {
-  	var r = {};
-  	for (var k in o) r[k] = o[k];
-  	return r;
-  }
-
-  function isObject(x) {
-  	return !Array.isArray(x) && typeof x === "object" && x != null;
-  }
-
-  // Expects an object at the top level.
-  // Does not deep-copy arrays, which is okay here
-  // since the data structures we expect to receive
-  // have arrays only of strings.
-  function deepCopy(obj) {
-  	if (obj == null) return obj;
-  	var copy = {};
-  	for (var k in obj) {
-  		if (Array.isArray(obj[k])) {
-  			copy[k] = obj[k].slice();
-  		}
-  		else if (isObject(obj[k])) {
-  			copy[k] = deepCopy(obj[k]);
-  		}
-  		else {
-  			copy[k] = obj[k];
-  		}
-  	}
-  	return copy;
-  }
-
-  var embedding = null;
-  function Fleet(opts) {
-  	this._validateOpts(opts);
-
-  	this.template_loaded = false;
-  	this.metadata_loaded = false;
-  	this.company_state = null;
-  	this.template_settings = null;
-  	this._queued_methods = [];
-
-  	for (var prop in DEFAULTS) {
-  		if (!opts.hasOwnProperty(prop)) opts[prop] = DEFAULTS[prop];
-  	}
-
-  	if (opts.base_visualisation_id) {
-  		var that = this;
-  		this._loadBaseVisualisation(opts, function(error, base) {
-  			if (error) {
-  				console.error(error.message);
-  				return;
-  			}
-  			opts = mergeObjects(base, opts);
-  			that._loadFleet(opts);
-  		});
-  	}
-  	else {
-  		this._loadFleet(opts);
-  	}
-  }
-
-  Fleet.prototype._loadBaseVisualisation = function Fleet__loadBaseVisualisation(opts, callback) {
-  	var xhr = new XMLHttpRequest();
-  	xhr.addEventListener("load", function() {
-  		if (this.status != 200) {
-  			var error = new Error("Fetching the base visualisation failed");
-  			return callback(error);
-  		}
-  		var parsed_json = JSON.parse(this.responseText);
-  		return callback(null, parsed_json);
-  	});
-
-  	xhr.open("GET", opts.public_bucket_prefix + "visualisation/" + opts.base_visualisation_id + "/visualisation.json");
-  	xhr.send();
-  };
-
-  Fleet.prototype._loadFleet = function Fleet__loadFleet(opts) {
-  	this.original_properties = {};
-  	for (var i = 0; i < IMMUTABLE_PROPERTIES.length; i++) {
-  		var k = IMMUTABLE_PROPERTIES[i];
-  		this.original_properties[k] = opts[k];
-  	}
-
-  	if (!embedding) embedding = initEmbedding();
-  	var embed_url = opts.api_url + "/template?api_key=" + opts.api_key + "&template=" + encodeURIComponent(opts.template) + "&version=" + opts.version;
-
-  	var container = (typeof opts.container === "string") ? document.querySelector(opts.container) : opts.container;
-
-  	this.iframe = embedding.createEmbedIframe(embed_url, container, opts.width, opts.height, false);
-
-  	var that = this;
-  	this.iframe.addEventListener("load", function() {
-  		that.template_loaded = true;
-  		if (that.metadata_loaded) that._init(opts.state, that._data, opts.callback);
-  	});
-
-  	embedding.startEventListeners(function(message, frame) {
-  		if (message.method == "resize") {
-  			if (typeof message.height == "number") message.height += "px";
-  			if (message.height) frame.style.height = message.height;
-  		}
-  	});
-
-  	var xhr = new XMLHttpRequest();
-  	xhr.addEventListener("load", function () {
-  		if (this.status === 500) {
-  			console.error(JSON.parse(this.responseText));
-  			return;
-  		}
-  		if (this.status != 200) {
-  			console.error("Fetching the template and data bindings from the server failed");
-  			return;
-  		}
-  		var parsed_json = JSON.parse(this.responseText);
-
-  		that._prepareDataBindings(parsed_json.data_bindings);
-  		that.template_settings = parsed_json.settings || {};
-  		that.company_state = that._getCompanyState(parsed_json.company_custom);
-  		that.metadata_loaded = true;
-  		that._prepareData(opts);
-  		if (that.template_loaded) that._init(opts.state, that._data, opts.callback);
-
-  		if (!parsed_json.hide_credit) {
-  			var template_name = opts.template.replace(/^@?flourish\//, "");
-  			var local_credits = getLocalizedCreditTextAndUrl(opts.lang, template_name);
-  			var credit = createFlourishCredit(local_credits.credit_url,
-  				null, null, local_credits.credit_text);
-  			container.appendChild(credit);
-  		}
-  	});
-
-  	xhr.open("GET", opts.api_url + "/metadata?api_key=" + opts.api_key + "&template=" + encodeURIComponent(opts.template) + "&version=" + opts.version);
-  	xhr.send();
-  };
-
-  // Calculate the base state which the state passed to the API is
-  // merged over. This will return an empty object unless the API key
-  // owner is in a company with custom settings.
-  Fleet.prototype._getCompanyState = function Fleet__getCompanyState(company_custom) {
-  	if (!company_custom) return {};
-  	return company_custom.settings || {};
-  };
-
-  function isNonArrayObject(o) {
-  	return (o instanceof Object) && !Array.isArray(o) && o !== null;
-  }
-
-  function mergeObjects(o1, o2) {
-  	// Deep clone the first object so we won't modify it on merging:
-  	var k, v, result = JSON.parse(JSON.stringify(o1));
-  	for (k in o2) {
-  		v = o2[k];
-  		// If both corresponding values are objects, recursively
-  		// merge them, otherwise o2's value is used:
-  		if (isNonArrayObject(result[k]) && isNonArrayObject(v)) {
-  			result[k] = mergeObjects(result[k], v);
-  		}
-  		else result[k] = v;
-  	}
-  	return result;
-  }
-
-  Fleet.prototype._mergeState = function Fleet__mergeState(state) {
-  	return mergeObjects(this.company_state, state);
-  };
-
-  Fleet.prototype._prepareDataBindings = function Fleet__prepareDataBindings(data_bindings_array) {
-  	var data_bindings = {};
-
-  	for (var i = 0; i < data_bindings_array.length; i++) {
-  		var d = data_bindings_array[i];
-  		if (typeof d === "string") continue;
-
-  		if (!(d.dataset in data_bindings)) {
-  			data_bindings[d.dataset] = [];
-  		}
-  		data_bindings[d.dataset].push(d);
-  	}
-
-  	this._data_bindings = data_bindings;
-  	this._parsed_bindings = {};
-
-  	for (var dataset in data_bindings) {
-  		this._parseDataset(dataset);
-  	}
-  };
-
-  Fleet.prototype._parseDataset = function Fleet__parseDataset(dataset) {
-  	if (!this._parsed_bindings[dataset]) {
-  		var kd = this._parsed_bindings[dataset] = {
-  			dataset: dataset,
-  			mandatory_keys: [],
-  			optional_keys: [],
-  			columns_keys: [],
-  			default_values: {},
-  			has_mandatory_key: false
-  		};
-
-  		var data_bindings = this._data_bindings;
-  		for (var key in data_bindings[dataset]) {
-  			var d = data_bindings[dataset][key];
-  			switch (d.type) {
-  				case "column":
-  					if (!d.optional) {
-  						kd.mandatory_keys.push(d.key);
-  						kd.has_mandatory_key = true;
-  					}
-  					else {
-  						kd.optional_keys.push(d.key);
-  					}
-  					break;
-
-  				case "columns":
-  					kd.default_values[d.key] = [];
-  					kd.columns_keys.push(d.key);
-  					break;
-  			}
-  		}
-  	}
-  };
-
-  Fleet.prototype._getColumnNames = function Fleet__getColumnNames(kd, column_names, optional_keys_used, number_of_columns) {
-  	var result = {};
-
-  	var dataset = kd.dataset;
-  	var column_name;
-  	for (var i = 0; i < kd.mandatory_keys.length; i++) {
-  		var mandatory_key = kd.mandatory_keys[i];
-  		column_name = (column_names && column_names[dataset] && column_names[dataset][mandatory_key]) || mandatory_key;
-
-  		result[mandatory_key] = column_name;
-  	}
-
-  	for (var i = 0; i < kd.optional_keys.length; i++) {
-  		var optional_key = kd.optional_keys[i];
-  		if (!optional_keys_used[optional_key]) continue;
-  		column_name = (column_names && column_names[dataset] && column_names[dataset][optional_key]) || optional_key;
-
-  		result[optional_key] = column_name;
-  	}
-
-  	for (var i = 0; i < kd.columns_keys.length; i++) {
-  		var columns_key = kd.columns_keys[i];
-  		if (column_names && column_names[dataset] && column_names[dataset][columns_key]) {
-  			column_name = column_names[dataset][columns_key];
-  			if (typeof column_name === "string") column_name = [column_name];
-  			if (!Array.isArray(column_name) || column_name.length != number_of_columns[columns_key]) {
-  				throw new Error("Flourish: number of column names (" + column_name.length
-  					+ ") does not match the number of columns (" + number_of_columns[columns_key]
-  					+ ") for dataset “" + dataset + "” and key “" + columns_key + "”");
-  			}
-  		}
-  		else {
-  			column_name = [];
-  			for (var j = 0; j < number_of_columns[columns_key]; j++) {
-  				column_name.push(columns_key + " " + (j+1));
-  			}
-  		}
-
-  		result[columns_key] = column_name;
-  	}
-
-  	return result;
-  };
-
-  function arrayToObjectKeys(arr) {
-  	return arr.reduce(function(obj, key) {
-  		obj[key] = true;
-  		return obj;
-  	}, {});
-  }
-
-  function getOrCreateDataset(data, dataset) {
-  	if (!data[dataset]) {
-  		data[dataset] = [];
-  		data[dataset].column_names = {};
-  	}
-  	return data[dataset];
-  }
-
-  function splitBindings(dataset, bindings, kd) {
-  	var result = { column_bindings: {}, columns_bindings: {} };
-  	for (var k in bindings) {
-  		var v = bindings[k];
-  		// FIXME: make a simple object lookup in kd instead of repeatedly iterating over these arrays
-  		if (kd.columns_keys.indexOf(k) >= 0) {
-  			result.columns_bindings[k] = v;
-  		}
-  		else if (kd.mandatory_keys.indexOf(k) >= 0 || kd.optional_keys.indexOf(k) >= 0) {
-  			result.column_bindings[k] = v;
-  		}
-  		else {
-  			throw new Error("Flourish: unknown binding “" + k + "” found for dataset “" + dataset + "”");
-  		}
-  	}
-  	return result;
-  }
-
-  function addMissingColumnNames(dataset, parsed_bindings, data_bindings) {
-  	var column_names = dataset.column_names;
-  	var mandatory_keys = arrayToObjectKeys(parsed_bindings.mandatory_keys);
-  	for (var i = 0; i < data_bindings.length; i++) {
-  		var binding = data_bindings[i];
-  		var key = binding.key;
-  		if (column_names[key] !== undefined) continue;
-  		if (binding.type === "columns") column_names[key] = [];
-  		else if (mandatory_keys[key]) column_names[key] = binding.name;
-  	}
-  }
-
-  // This function will take a row from a dataset in the shape that
-  // Flourish expects and do the following:
-  //   - add default values for any columns or optional column types
-  //   - do a number of checks for consistency of the data, and throw
-  //     an exception on finding any inconsistency
-  //   - record which optional keys have been used in the
-  //     optional_keys_used object.
-  //   - record the expected number of values for each columns type
-  function fixRow(d, kd, optional_keys_used, number_of_columns) {
-  	// Assign default values
-  	for (var k in kd.default_values) {
-  		if (!(k in d)) d[k] = kd.default_values[k];
-  	}
-
-  	// Check that mandatory keys are present in each row
-  	for (var j = 0; j < kd.mandatory_keys.length; j++) {
-  		var mandatory_key = kd.mandatory_keys[j];
-  		if (!(mandatory_key in d)) {
-  			throw new Error("required key “" + mandatory_key + "” is missing");
-  		}
-  	}
-
-  	// Check that optional keys are used or not used consistently,
-  	// and record which are used in  the optional_keys_used object.
-  	for (var j = 0; j < kd.optional_keys.length; j++) {
-  		var optional_key = kd.optional_keys[j];
-  		if (optional_key in optional_keys_used) {
-  			if (optional_keys_used[optional_key] != (optional_key in d)) {
-  				throw new Error("the optional key “" + optional_key + "” is used in some rows but not in others");
-  			}
-  		}
-  		else {
-  			optional_keys_used[optional_key] = (optional_key in d);
-  		}
-  	}
-
-  	// Check that columns keys are used consistently, and record
-  	// how many columns each uses, in the number_of_columns object.
-  	//
-  	// TODO: Should we support having an inconsistent number of entries in a columns key?
-  	// We could assume the longest array determines the length.
-  	for (var j = 0; j < kd.columns_keys.length; j++) {
-  		var columns_key = kd.columns_keys[j];
-
-  		// If an atomic value is passed where an array is expected, treat it
-  		// as a single-element array.
-  		if (typeof d[columns_key] !== "object") {
-  			d[columns_key] = [ d[columns_key] ];
-  		}
-  		if (columns_key in number_of_columns) {
-  			if (number_of_columns[columns_key] != (d[columns_key].length)) {
-  				throw new Error("the columns key “" + columns_key + "” has an inconsistent number of entries");
-  			}
-  		}
-  		else {
-  			number_of_columns[columns_key] = d[columns_key].length;
-  		}
-  	}
-  }
-
-  Fleet.prototype._prepareData = function Fleet__prepareData(opts) {
-  	if ("column_names" in opts) this.column_names = deepCopy(opts.column_names);
-  	if (opts.bindings) {
-  		this._prepareDataFromExternalFormat(opts.data, opts.bindings);
-  	}
-  	else {
-  		this._prepareDataFlourishShape(opts.data, this.column_names);
-  	}
-  };
-
-  Fleet.prototype._prepareDataFromExternalFormat = function Fleet__prepareDataFromExternalFormat(data, bindings) {
-  	this._data = {};
-
-  	for (var dataset in bindings) {
-  		var kd = this._parsed_bindings[dataset]; // kd is short for “key data”
-  		var bindings_object = splitBindings(dataset, bindings[dataset], kd);
-  		var reshaped_data = flourishify(data[dataset] || [], bindings_object.column_bindings, bindings_object.columns_bindings);
-
-  		var number_of_columns = {};
-  		var optional_keys_used = {};
-  		for (var i = 0; i < reshaped_data.length; i++) {
-  			try {
-  				fixRow(reshaped_data[i], kd, optional_keys_used, number_of_columns, dataset);
-  			}
-  			catch (e) {
-  				throw new Error("Flourish: in dataset “" + dataset + "”, " + e.message);
-  			}
-  		}
-
-  		this._data[dataset] = reshaped_data;
-  	}
-
-  	// Fill in missing datasets and column names
-  	for (var dataset in this._data_bindings) {
-  		var d = getOrCreateDataset(this._data, dataset);
-  		var parsed_bindings = this._parsed_bindings[dataset];
-  		var data_bindings = this._data_bindings[dataset];
-  		addMissingColumnNames(d, parsed_bindings, data_bindings);
-  	}
-  };
-
-  Fleet.prototype._prepareDataFlourishShape = function Fleet__prepareDataFlourishShape(data, column_names) {
-  	var data_bindings = this._data_bindings;
-
-  	for (var dataset in data) {
-  		if (!(dataset in data_bindings)) {
-  			throw new Error("Flourish: the dataset “" + dataset + "” is not supported by this template");
-  		}
-  	}
-
-  	this._data = {};
-  	for (var dataset in data_bindings) {
-  		var kd = this._parsed_bindings[dataset]; // kd is short for “key data”
-
-  		if (kd.has_mandatory_key && !(dataset in data)) {
-  			throw new Error("Flourish: the dataset “" + dataset + "” must be specified");
-  		}
-
-  		var number_of_columns = {};
-  		var optional_keys_used = {};
-  		this._data[dataset] = [];
-  		for (var i = 0; i < data[dataset].length; i++) {
-  			var d = shallowCopy(data[dataset][i]);
-  			this._data[dataset].push(d);
-  			try {
-  				fixRow(d, kd, optional_keys_used, number_of_columns);
-  			}
-  			catch (e) {
-  				throw new Error("Flourish: in dataset “" + dataset + "”, " + e.message);
-  			}
-  		}
-
-  		this._data[dataset].column_names = this._getColumnNames(kd, column_names, optional_keys_used, number_of_columns);
-  	}
-  };
-
-  Fleet.prototype._init = function Fleet__init(state, data, callback) {
-  	var that = this;
-  	that._send("setFixedHeight", null, function() {
-  		that._draw(state, data, function() {
-  			if (callback) callback(that);
-
-  			for (var i = 0; i < that._queued_methods.length; i++) {
-  				var m = that._queued_methods[i];
-  				m[0].apply(that, m.slice(1));
-  			}
-  			that._queued_methods = null;
-  		});
-  	});
-  };
-
-  Fleet.prototype._queue = function Fleet__queue() {
-  	// Convert the pseudo-array arguments to a real array args.
-  	var args = [];
-  	for (var i = 0; i < arguments.length; i++) {
-  		args.push(arguments[i]);
-  	}
-
-  	// If initialisation is complete and the queued methods
-  	// have already been run, then run this method immediately
-  	// rather than queueing it.
-  	if (!this._queued_methods) {
-  		args[0].apply(this, args.slice(1));
-  		return;
-  	}
-
-  	// Otherwise add it to the queue
-  	this._queued_methods.push(args);
-  };
-
-  function wrapInQueue(f) {
-  	return function() {
-  		var args = [ f ];
-  		for (var i = 0; i < arguments.length; i++) {
-  			args.push(arguments[i]);
-  		}
-  		this._queue.apply(this, args);
-  	};
-  }
-
-  Fleet.prototype._send = function Fleet__send(method, argument, callback) {
-  	var channel = new MessageChannel();
-  	channel.port1.onmessage = callback;
-
-  	this.iframe.contentWindow.postMessage({
-  		sender: "Flourish",
-  		method: method,
-  		argument: argument
-  	}, "*", [channel.port2]);
-  };
-
-  Fleet.prototype._draw = function Fleet_draw(state, data, callback) {
-  	return this._send("sync", {
-  		draw: true,
-  		state: this._mergeState(state),
-  		data: stringify(data)
-  	}, callback);
-  };
-
-  Fleet.prototype._update = function Fleet__update(state, data, callback) {
-  	var argument = {
-  		update: true,
-  		state: this._mergeState(state)
-  	};
-  	if (data) {
-  		argument.data = stringify(data);
-  	}
-  	return this._send("sync", argument, callback);
-  };
-
-  Fleet.prototype._validateOpts = function Fleet__validateOpts(opts, update) {
-  	if (update) {
-  		for (var i = 0; i < IMMUTABLE_PROPERTIES.length; i++) {
-  			var k = IMMUTABLE_PROPERTIES[i];
-  			if (k in opts && opts[k] != this.original_properties[k]) {
-  				throw new Error("Flourish: changing the '" + k + "' is not yet supported");
-  			}
-  		}
-  	}
-
-  	if (opts.bindings && opts.column_names) {
-  		throw new Error(
-  			"Flourish: you must supply exactly one of opts.bindings and opts.column_names - " +
-  			"these correspond to different ways that your data might be shaped"
-  		);
-  	}
-  };
-
-  Fleet.prototype.getState = wrapInQueue(function Fleet_getState(callback) {
-  	return this._send("getState", null, function(obj) {
-  		if (!("data" in obj) || !("result" in obj.data)) {
-  			return callback(new Error("Template state not found"));
-  		}
-  		return callback(null, obj.data.result);
-  	});
-  });
-
-  Fleet.prototype.update = wrapInQueue(function Fleet_update(opts, callback) {
-  	this._validateOpts(opts, true);
-  	// FIXME (?): one might conceivably want to change the bindings or
-  	// column names on update, in which case _prepareData should be
-  	// re-run on the data which was last passed in. We're not sure
-  	// that we want to support this, however - it'd mean keeping an
-  	// extra copy of the passed in data in memory.
-  	if ("data" in opts) {
-  		this._prepareData(opts);
-  		return this._update(opts.state, this._data, callback);
-  	}
-  	return this._update(opts.state, undefined, callback);
-  });
-
-  var Flourish = {
-  	VERSION: VERSION,
-  	Live: Fleet
-  };
 
   var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -5458,70 +3167,1275 @@
 
   var cloneDeep = lodash_clonedeep.exports;
 
-  async function getBaseChartConfig(id) {
-    let baseConfig;
-    await json(`https://public.flourish.studio/visualisation/${id}/visualisation.json`)
-      .then(res => {
-        baseConfig = res;
-      })
-      .catch(error => {
-        console.warn('You probably need a published base chart');
-      });
+  /* eslint-disable no-restricted-syntax */
 
-    return baseConfig;
+  // Globals.
+  let visJsonOptions;
+
+  // Helpers.
+  function show(selector) {
+    selectAll('.ui').style('display', 'none');
+    select(selector).style('display', 'flex');
+    select('#data-url').style('display', 'flex');
   }
 
-  async function buildAPIChart(info, chartData) {
-    // Compose the API options.
-    const config = await getBaseChartConfig(info.base_chart);
+  async function sendMetadataRequest(templateId, version) {
+    // Left out `&auto=1`
+    const endpoint = `https://flourish-api.com/api/v1/live/metadata?api_key=${apiKey}&template=${encodeURIComponent(
+    templateId
+  )}&version=${version}`;
+    const result = await json(endpoint);
+    return result;
+  }
 
+  async function sendVisJsonRequest(visId) {
+    const endpoint = `https://public.flourish.studio/visualisation/${visId}/visualisation.json`;
+    const result = await json(endpoint);
+    return result;
+  }
+
+  function getBindingNames(bindings, data) {
+    // The column names in an array.
+    const colNames = data[0];
+    const bindingNameObject = {};
+
+    // This will map the column name indeces to the column names.
+    for (const key in bindings) {
+      // Probably already an object name
+      if (typeof bindings[key] === 'string') {
+        break;
+      }
+      // Replace numeric index.
+      else if (!isNaN(bindings[key])) {
+        bindingNameObject[key] = colNames[bindings[key]];
+      }
+      // Replace array of numeric indeces.
+      else {
+        bindingNameObject[key] = bindings[key].map(d => colNames[d]);
+      }
+    }
+    return bindingNameObject;
+  }
+
+  function getObjectNamedBindings(bindingObject, dataArray) {
+    // There can be multiple datasets per template (ie. Projection Map has three)
+    // First we loop through each dataset here and then get each dataset's bindings.
+    const objectBindings = {};
+    for (const bindingKey in bindingObject) {
+      objectBindings[bindingKey] = getBindingNames(bindingObject[bindingKey], dataArray[bindingKey]);
+    }
+    return objectBindings;
+  }
+
+  // Takes an array of objects and returns an object nested by a specific key
+  function groupArrayToObjectByKey(array, key) {
+    const object = {};
+    for (let i = 0; i < array.length; i++) {
+      if (i === 0 || array[i][key] !== array[i - 1][key]) {
+        object[array[i][key]] = {};
+      }
+      object[array[i][key]] = { ...object[array[i][key]], ...array[i] };
+      delete object[array[i][key]][key];
+    }
+    return object;
+  }
+
+  // Build.
+  function buildBindingsUi(bindings, bindingsGiven) {
+    const bindingsClean = bindings.filter(d => typeof d !== 'string');
+    const bindingsMap = group(bindingsClean, d => d.dataset);
+
+    // Build dataset wrapper div's.
+    const datasets = select('#binding-selections')
+      .selectAll('.dataset')
+      .data(bindingsMap)
+      .join('div')
+      .attr('class', 'dataset')
+      .attr('id', d => d[0])
+      .html(d => d[0][0].toUpperCase() + d[0].substring(1));
+
+    // Build a input wrapper for each binding.
+    const bindingElements = datasets
+      .selectAll('.binding')
+      .data(d => d[1])
+      .join('div')
+      .attr('class', 'binding');
+
+    // Build labels and inputs for each binding.
+    bindingElements
+      .append('input')
+      .attr('type', 'text')
+      .attr('id', d => `${d.dataset}-${d.key}`)
+      // Fill values if they're given in the original dataset.
+      .attr('value', d => bindingsGiven[d.dataset][d.key]);
+
+    bindingElements
+      .append('label')
+      .attr('for', d => `${d.dataset}-${d.key}`)
+      .html(
+        d =>
+          `${d.name} (${d.type === 'columns' ? 'multi' : 'single'}${d.optional ? ' | optional' : ''})`
+      );
+  }
+
+  function buildTemplatePickUI() {
+    // This will be a static JSON unless I can find an endpoint for it.
+    const templateList = [
+      { id: '@flourish/line-bar-pie', versions: [20, 21, 22, 23, 24] },
+      { id: '@flourish/projection-map', versions: [10, 11] },
+      { id: '@flourish/scatter', versions: [13, 14, 15] },
+    ];
+
+    // DOM el's
+    const templateSelection = select('#template-id');
+    const versionSelection = select('#template-version');
+
+    // Build
+    let selectedTemplateId;
+
+    function setVersionSelect(versions) {
+      versionSelection
+        .selectAll('option')
+        .data(versions)
+        .join('option')
+        .attr('value', d => d)
+        .html(d => d);
+    }
+
+    templateSelection
+      .selectAll('option')
+      .data(templateList)
+      .join('option')
+      .attr('value', d => d.id)
+      .html(d => d.id);
+
+    // Handlers
+    templateSelection.on('change', function () {
+      selectedTemplateId = this.value;
+      const { versions } = templateList.filter(d => d.id === selectedTemplateId)[0];
+      setVersionSelect(versions);
+    });
+
+    versionSelection.on('change', async function () {
+      const selectedVersion = this.value;
+      const response = await sendMetadataRequest(selectedTemplateId, selectedVersion);
+      console.log(response);
+      buildBindingsUi(response.data_bindings);
+    });
+  }
+
+  // Submit.
+  function setColumnType(type, value) {
+    if (type === 'column') {
+      return value;
+    }
+    if (type === 'columns') {
+      return value.split(',');
+    }
+
+    throw Error(`Column type ${type} unknown`);
+  }
+
+  async function handleSubmit() {
+    console.log('api options initial', visJsonOptions);
+
+    // Get base.
     const base = {
-      template: config.template,
-      version: config.version,
+      template: visJsonOptions.template,
+      version: visJsonOptions.template,
       api_key: apiKey,
-      container: info.container,
-      // height: info.height, // controlled by the container element
+      container: '#chart-container', // ultimately needs to come from WP module
     };
 
-    const state = {
-      state: cloneDeep(config.state),
-    };
+    // Get data
+    const dataUrl = select('#data-url-input').node().value;
+    const dataset = dataUrl ? await csv(dataUrl) : visJsonOptions.data;
 
-    // Add any kind of template specific bindings config here
-    // (or let that happen in WP)
-    const bindings = {
-      bindings: {
-        data: {
-          label: info.bindings.label,
-          value: info.bindings.value,
-          filter: info.bindings.filter,
-          metadata: info.bindings.metadata,
-        },
-      },
-    };
+    // Get bindings
+    const userBindingsArray = [];
+    selectAll('.binding input').each(function (d) {
+      userBindingsArray.push({
+        dataset: d.dataset,
+        [d.key]: setColumnType(d.type, this.value),
+      });
+    });
+    const userBindings = groupArrayToObjectByKey(userBindingsArray, 'dataset');
 
-    // Add any kind of data prep here.
-    const dataPrepped = chartData.map(d => ({
-      ...d,
-      date: timeFormat('%d %b %Y')(d.date),
-      value: +d.value,
-    }));
+    // Get settings
+    const state = cloneDeep(visJsonOptions.state);
 
-    const data = {
-      data: {
-        data: dataPrepped,
-      },
-    };
-
-    const apiOptions = { ...base, ...state, ...bindings, ...data };
-
-    new Flourish.Live(apiOptions);
-    // console.log(visual);
+    dispatch.call('blurb', this, { base, data: dataset, bindings: userBindings, state });
   }
+
+  function collectAndSubmitData() {
+    select('button#submit').style('display', 'block').on('click', handleSubmit);
+  }
+
+  // Paths.
+  function emptyChartPath() {
+    show('#template-selections');
+    buildTemplatePickUI();
+  }
+
+  function baseChartPath() {
+    show('#vis-id');
+
+    select('#vis-id input').on('change', async function () {
+      const visJson = await sendVisJsonRequest(this.value);
+      visJsonOptions = cloneDeep(visJson); // we'll need them later to update
+
+      const metadata = await sendMetadataRequest(visJson.template, visJson.version);
+
+      const bindingsGiven = getObjectNamedBindings(visJson.bindings, visJson.data);
+      buildBindingsUi(metadata.data_bindings, bindingsGiven);
+
+      collectAndSubmitData();
+    });
+  }
+
+  // Base.
+  function getPathChoice() {
+    select('#option-path')
+      .selectAll('button')
+      .on('click', function () {
+        this.dataset.option === 'base_chart' ? baseChartPath() : emptyChartPath();
+      });
+  }
+
+  function buildSelectUI() {
+    getPathChoice();
+  }
+
+  var t0 = new Date,
+      t1 = new Date;
+
+  function newInterval(floori, offseti, count, field) {
+
+    function interval(date) {
+      return floori(date = arguments.length === 0 ? new Date : new Date(+date)), date;
+    }
+
+    interval.floor = function(date) {
+      return floori(date = new Date(+date)), date;
+    };
+
+    interval.ceil = function(date) {
+      return floori(date = new Date(date - 1)), offseti(date, 1), floori(date), date;
+    };
+
+    interval.round = function(date) {
+      var d0 = interval(date),
+          d1 = interval.ceil(date);
+      return date - d0 < d1 - date ? d0 : d1;
+    };
+
+    interval.offset = function(date, step) {
+      return offseti(date = new Date(+date), step == null ? 1 : Math.floor(step)), date;
+    };
+
+    interval.range = function(start, stop, step) {
+      var range = [], previous;
+      start = interval.ceil(start);
+      step = step == null ? 1 : Math.floor(step);
+      if (!(start < stop) || !(step > 0)) return range; // also handles Invalid Date
+      do range.push(previous = new Date(+start)), offseti(start, step), floori(start);
+      while (previous < start && start < stop);
+      return range;
+    };
+
+    interval.filter = function(test) {
+      return newInterval(function(date) {
+        if (date >= date) while (floori(date), !test(date)) date.setTime(date - 1);
+      }, function(date, step) {
+        if (date >= date) {
+          if (step < 0) while (++step <= 0) {
+            while (offseti(date, -1), !test(date)) {} // eslint-disable-line no-empty
+          } else while (--step >= 0) {
+            while (offseti(date, +1), !test(date)) {} // eslint-disable-line no-empty
+          }
+        }
+      });
+    };
+
+    if (count) {
+      interval.count = function(start, end) {
+        t0.setTime(+start), t1.setTime(+end);
+        floori(t0), floori(t1);
+        return Math.floor(count(t0, t1));
+      };
+
+      interval.every = function(step) {
+        step = Math.floor(step);
+        return !isFinite(step) || !(step > 0) ? null
+            : !(step > 1) ? interval
+            : interval.filter(field
+                ? function(d) { return field(d) % step === 0; }
+                : function(d) { return interval.count(0, d) % step === 0; });
+      };
+    }
+
+    return interval;
+  }
+
+  var millisecond = newInterval(function() {
+    // noop
+  }, function(date, step) {
+    date.setTime(+date + step);
+  }, function(start, end) {
+    return end - start;
+  });
+
+  // An optimized implementation for this simple case.
+  millisecond.every = function(k) {
+    k = Math.floor(k);
+    if (!isFinite(k) || !(k > 0)) return null;
+    if (!(k > 1)) return millisecond;
+    return newInterval(function(date) {
+      date.setTime(Math.floor(date / k) * k);
+    }, function(date, step) {
+      date.setTime(+date + step * k);
+    }, function(start, end) {
+      return (end - start) / k;
+    });
+  };
+  millisecond.range;
+
+  const durationSecond = 1000;
+  const durationMinute = durationSecond * 60;
+  const durationHour = durationMinute * 60;
+  const durationDay = durationHour * 24;
+  const durationWeek = durationDay * 7;
+
+  var second = newInterval(function(date) {
+    date.setTime(date - date.getMilliseconds());
+  }, function(date, step) {
+    date.setTime(+date + step * durationSecond);
+  }, function(start, end) {
+    return (end - start) / durationSecond;
+  }, function(date) {
+    return date.getUTCSeconds();
+  });
+  second.range;
+
+  var minute = newInterval(function(date) {
+    date.setTime(date - date.getMilliseconds() - date.getSeconds() * durationSecond);
+  }, function(date, step) {
+    date.setTime(+date + step * durationMinute);
+  }, function(start, end) {
+    return (end - start) / durationMinute;
+  }, function(date) {
+    return date.getMinutes();
+  });
+  minute.range;
+
+  var hour = newInterval(function(date) {
+    date.setTime(date - date.getMilliseconds() - date.getSeconds() * durationSecond - date.getMinutes() * durationMinute);
+  }, function(date, step) {
+    date.setTime(+date + step * durationHour);
+  }, function(start, end) {
+    return (end - start) / durationHour;
+  }, function(date) {
+    return date.getHours();
+  });
+  hour.range;
+
+  var day = newInterval(
+    date => date.setHours(0, 0, 0, 0),
+    (date, step) => date.setDate(date.getDate() + step),
+    (start, end) => (end - start - (end.getTimezoneOffset() - start.getTimezoneOffset()) * durationMinute) / durationDay,
+    date => date.getDate() - 1
+  );
+  day.range;
+
+  function weekday(i) {
+    return newInterval(function(date) {
+      date.setDate(date.getDate() - (date.getDay() + 7 - i) % 7);
+      date.setHours(0, 0, 0, 0);
+    }, function(date, step) {
+      date.setDate(date.getDate() + step * 7);
+    }, function(start, end) {
+      return (end - start - (end.getTimezoneOffset() - start.getTimezoneOffset()) * durationMinute) / durationWeek;
+    });
+  }
+
+  var sunday = weekday(0);
+  var monday = weekday(1);
+  var tuesday = weekday(2);
+  var wednesday = weekday(3);
+  var thursday = weekday(4);
+  var friday = weekday(5);
+  var saturday = weekday(6);
+
+  sunday.range;
+  monday.range;
+  tuesday.range;
+  wednesday.range;
+  thursday.range;
+  friday.range;
+  saturday.range;
+
+  var month = newInterval(function(date) {
+    date.setDate(1);
+    date.setHours(0, 0, 0, 0);
+  }, function(date, step) {
+    date.setMonth(date.getMonth() + step);
+  }, function(start, end) {
+    return end.getMonth() - start.getMonth() + (end.getFullYear() - start.getFullYear()) * 12;
+  }, function(date) {
+    return date.getMonth();
+  });
+  month.range;
+
+  var year = newInterval(function(date) {
+    date.setMonth(0, 1);
+    date.setHours(0, 0, 0, 0);
+  }, function(date, step) {
+    date.setFullYear(date.getFullYear() + step);
+  }, function(start, end) {
+    return end.getFullYear() - start.getFullYear();
+  }, function(date) {
+    return date.getFullYear();
+  });
+
+  // An optimized implementation for this simple case.
+  year.every = function(k) {
+    return !isFinite(k = Math.floor(k)) || !(k > 0) ? null : newInterval(function(date) {
+      date.setFullYear(Math.floor(date.getFullYear() / k) * k);
+      date.setMonth(0, 1);
+      date.setHours(0, 0, 0, 0);
+    }, function(date, step) {
+      date.setFullYear(date.getFullYear() + step * k);
+    });
+  };
+  year.range;
+
+  var utcMinute = newInterval(function(date) {
+    date.setUTCSeconds(0, 0);
+  }, function(date, step) {
+    date.setTime(+date + step * durationMinute);
+  }, function(start, end) {
+    return (end - start) / durationMinute;
+  }, function(date) {
+    return date.getUTCMinutes();
+  });
+  utcMinute.range;
+
+  var utcHour = newInterval(function(date) {
+    date.setUTCMinutes(0, 0, 0);
+  }, function(date, step) {
+    date.setTime(+date + step * durationHour);
+  }, function(start, end) {
+    return (end - start) / durationHour;
+  }, function(date) {
+    return date.getUTCHours();
+  });
+  utcHour.range;
+
+  var utcDay = newInterval(function(date) {
+    date.setUTCHours(0, 0, 0, 0);
+  }, function(date, step) {
+    date.setUTCDate(date.getUTCDate() + step);
+  }, function(start, end) {
+    return (end - start) / durationDay;
+  }, function(date) {
+    return date.getUTCDate() - 1;
+  });
+  utcDay.range;
+
+  function utcWeekday(i) {
+    return newInterval(function(date) {
+      date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 7 - i) % 7);
+      date.setUTCHours(0, 0, 0, 0);
+    }, function(date, step) {
+      date.setUTCDate(date.getUTCDate() + step * 7);
+    }, function(start, end) {
+      return (end - start) / durationWeek;
+    });
+  }
+
+  var utcSunday = utcWeekday(0);
+  var utcMonday = utcWeekday(1);
+  var utcTuesday = utcWeekday(2);
+  var utcWednesday = utcWeekday(3);
+  var utcThursday = utcWeekday(4);
+  var utcFriday = utcWeekday(5);
+  var utcSaturday = utcWeekday(6);
+
+  utcSunday.range;
+  utcMonday.range;
+  utcTuesday.range;
+  utcWednesday.range;
+  utcThursday.range;
+  utcFriday.range;
+  utcSaturday.range;
+
+  var utcMonth = newInterval(function(date) {
+    date.setUTCDate(1);
+    date.setUTCHours(0, 0, 0, 0);
+  }, function(date, step) {
+    date.setUTCMonth(date.getUTCMonth() + step);
+  }, function(start, end) {
+    return end.getUTCMonth() - start.getUTCMonth() + (end.getUTCFullYear() - start.getUTCFullYear()) * 12;
+  }, function(date) {
+    return date.getUTCMonth();
+  });
+  utcMonth.range;
+
+  var utcYear = newInterval(function(date) {
+    date.setUTCMonth(0, 1);
+    date.setUTCHours(0, 0, 0, 0);
+  }, function(date, step) {
+    date.setUTCFullYear(date.getUTCFullYear() + step);
+  }, function(start, end) {
+    return end.getUTCFullYear() - start.getUTCFullYear();
+  }, function(date) {
+    return date.getUTCFullYear();
+  });
+
+  // An optimized implementation for this simple case.
+  utcYear.every = function(k) {
+    return !isFinite(k = Math.floor(k)) || !(k > 0) ? null : newInterval(function(date) {
+      date.setUTCFullYear(Math.floor(date.getUTCFullYear() / k) * k);
+      date.setUTCMonth(0, 1);
+      date.setUTCHours(0, 0, 0, 0);
+    }, function(date, step) {
+      date.setUTCFullYear(date.getUTCFullYear() + step * k);
+    });
+  };
+  utcYear.range;
+
+  function localDate(d) {
+    if (0 <= d.y && d.y < 100) {
+      var date = new Date(-1, d.m, d.d, d.H, d.M, d.S, d.L);
+      date.setFullYear(d.y);
+      return date;
+    }
+    return new Date(d.y, d.m, d.d, d.H, d.M, d.S, d.L);
+  }
+
+  function utcDate(d) {
+    if (0 <= d.y && d.y < 100) {
+      var date = new Date(Date.UTC(-1, d.m, d.d, d.H, d.M, d.S, d.L));
+      date.setUTCFullYear(d.y);
+      return date;
+    }
+    return new Date(Date.UTC(d.y, d.m, d.d, d.H, d.M, d.S, d.L));
+  }
+
+  function newDate(y, m, d) {
+    return {y: y, m: m, d: d, H: 0, M: 0, S: 0, L: 0};
+  }
+
+  function formatLocale(locale) {
+    var locale_dateTime = locale.dateTime,
+        locale_date = locale.date,
+        locale_time = locale.time,
+        locale_periods = locale.periods,
+        locale_weekdays = locale.days,
+        locale_shortWeekdays = locale.shortDays,
+        locale_months = locale.months,
+        locale_shortMonths = locale.shortMonths;
+
+    var periodRe = formatRe(locale_periods),
+        periodLookup = formatLookup(locale_periods),
+        weekdayRe = formatRe(locale_weekdays),
+        weekdayLookup = formatLookup(locale_weekdays),
+        shortWeekdayRe = formatRe(locale_shortWeekdays),
+        shortWeekdayLookup = formatLookup(locale_shortWeekdays),
+        monthRe = formatRe(locale_months),
+        monthLookup = formatLookup(locale_months),
+        shortMonthRe = formatRe(locale_shortMonths),
+        shortMonthLookup = formatLookup(locale_shortMonths);
+
+    var formats = {
+      "a": formatShortWeekday,
+      "A": formatWeekday,
+      "b": formatShortMonth,
+      "B": formatMonth,
+      "c": null,
+      "d": formatDayOfMonth,
+      "e": formatDayOfMonth,
+      "f": formatMicroseconds,
+      "g": formatYearISO,
+      "G": formatFullYearISO,
+      "H": formatHour24,
+      "I": formatHour12,
+      "j": formatDayOfYear,
+      "L": formatMilliseconds,
+      "m": formatMonthNumber,
+      "M": formatMinutes,
+      "p": formatPeriod,
+      "q": formatQuarter,
+      "Q": formatUnixTimestamp,
+      "s": formatUnixTimestampSeconds,
+      "S": formatSeconds,
+      "u": formatWeekdayNumberMonday,
+      "U": formatWeekNumberSunday,
+      "V": formatWeekNumberISO,
+      "w": formatWeekdayNumberSunday,
+      "W": formatWeekNumberMonday,
+      "x": null,
+      "X": null,
+      "y": formatYear,
+      "Y": formatFullYear,
+      "Z": formatZone,
+      "%": formatLiteralPercent
+    };
+
+    var utcFormats = {
+      "a": formatUTCShortWeekday,
+      "A": formatUTCWeekday,
+      "b": formatUTCShortMonth,
+      "B": formatUTCMonth,
+      "c": null,
+      "d": formatUTCDayOfMonth,
+      "e": formatUTCDayOfMonth,
+      "f": formatUTCMicroseconds,
+      "g": formatUTCYearISO,
+      "G": formatUTCFullYearISO,
+      "H": formatUTCHour24,
+      "I": formatUTCHour12,
+      "j": formatUTCDayOfYear,
+      "L": formatUTCMilliseconds,
+      "m": formatUTCMonthNumber,
+      "M": formatUTCMinutes,
+      "p": formatUTCPeriod,
+      "q": formatUTCQuarter,
+      "Q": formatUnixTimestamp,
+      "s": formatUnixTimestampSeconds,
+      "S": formatUTCSeconds,
+      "u": formatUTCWeekdayNumberMonday,
+      "U": formatUTCWeekNumberSunday,
+      "V": formatUTCWeekNumberISO,
+      "w": formatUTCWeekdayNumberSunday,
+      "W": formatUTCWeekNumberMonday,
+      "x": null,
+      "X": null,
+      "y": formatUTCYear,
+      "Y": formatUTCFullYear,
+      "Z": formatUTCZone,
+      "%": formatLiteralPercent
+    };
+
+    var parses = {
+      "a": parseShortWeekday,
+      "A": parseWeekday,
+      "b": parseShortMonth,
+      "B": parseMonth,
+      "c": parseLocaleDateTime,
+      "d": parseDayOfMonth,
+      "e": parseDayOfMonth,
+      "f": parseMicroseconds,
+      "g": parseYear,
+      "G": parseFullYear,
+      "H": parseHour24,
+      "I": parseHour24,
+      "j": parseDayOfYear,
+      "L": parseMilliseconds,
+      "m": parseMonthNumber,
+      "M": parseMinutes,
+      "p": parsePeriod,
+      "q": parseQuarter,
+      "Q": parseUnixTimestamp,
+      "s": parseUnixTimestampSeconds,
+      "S": parseSeconds,
+      "u": parseWeekdayNumberMonday,
+      "U": parseWeekNumberSunday,
+      "V": parseWeekNumberISO,
+      "w": parseWeekdayNumberSunday,
+      "W": parseWeekNumberMonday,
+      "x": parseLocaleDate,
+      "X": parseLocaleTime,
+      "y": parseYear,
+      "Y": parseFullYear,
+      "Z": parseZone,
+      "%": parseLiteralPercent
+    };
+
+    // These recursive directive definitions must be deferred.
+    formats.x = newFormat(locale_date, formats);
+    formats.X = newFormat(locale_time, formats);
+    formats.c = newFormat(locale_dateTime, formats);
+    utcFormats.x = newFormat(locale_date, utcFormats);
+    utcFormats.X = newFormat(locale_time, utcFormats);
+    utcFormats.c = newFormat(locale_dateTime, utcFormats);
+
+    function newFormat(specifier, formats) {
+      return function(date) {
+        var string = [],
+            i = -1,
+            j = 0,
+            n = specifier.length,
+            c,
+            pad,
+            format;
+
+        if (!(date instanceof Date)) date = new Date(+date);
+
+        while (++i < n) {
+          if (specifier.charCodeAt(i) === 37) {
+            string.push(specifier.slice(j, i));
+            if ((pad = pads[c = specifier.charAt(++i)]) != null) c = specifier.charAt(++i);
+            else pad = c === "e" ? " " : "0";
+            if (format = formats[c]) c = format(date, pad);
+            string.push(c);
+            j = i + 1;
+          }
+        }
+
+        string.push(specifier.slice(j, i));
+        return string.join("");
+      };
+    }
+
+    function newParse(specifier, Z) {
+      return function(string) {
+        var d = newDate(1900, undefined, 1),
+            i = parseSpecifier(d, specifier, string += "", 0),
+            week, day$1;
+        if (i != string.length) return null;
+
+        // If a UNIX timestamp is specified, return it.
+        if ("Q" in d) return new Date(d.Q);
+        if ("s" in d) return new Date(d.s * 1000 + ("L" in d ? d.L : 0));
+
+        // If this is utcParse, never use the local timezone.
+        if (Z && !("Z" in d)) d.Z = 0;
+
+        // The am-pm flag is 0 for AM, and 1 for PM.
+        if ("p" in d) d.H = d.H % 12 + d.p * 12;
+
+        // If the month was not specified, inherit from the quarter.
+        if (d.m === undefined) d.m = "q" in d ? d.q : 0;
+
+        // Convert day-of-week and week-of-year to day-of-year.
+        if ("V" in d) {
+          if (d.V < 1 || d.V > 53) return null;
+          if (!("w" in d)) d.w = 1;
+          if ("Z" in d) {
+            week = utcDate(newDate(d.y, 0, 1)), day$1 = week.getUTCDay();
+            week = day$1 > 4 || day$1 === 0 ? utcMonday.ceil(week) : utcMonday(week);
+            week = utcDay.offset(week, (d.V - 1) * 7);
+            d.y = week.getUTCFullYear();
+            d.m = week.getUTCMonth();
+            d.d = week.getUTCDate() + (d.w + 6) % 7;
+          } else {
+            week = localDate(newDate(d.y, 0, 1)), day$1 = week.getDay();
+            week = day$1 > 4 || day$1 === 0 ? monday.ceil(week) : monday(week);
+            week = day.offset(week, (d.V - 1) * 7);
+            d.y = week.getFullYear();
+            d.m = week.getMonth();
+            d.d = week.getDate() + (d.w + 6) % 7;
+          }
+        } else if ("W" in d || "U" in d) {
+          if (!("w" in d)) d.w = "u" in d ? d.u % 7 : "W" in d ? 1 : 0;
+          day$1 = "Z" in d ? utcDate(newDate(d.y, 0, 1)).getUTCDay() : localDate(newDate(d.y, 0, 1)).getDay();
+          d.m = 0;
+          d.d = "W" in d ? (d.w + 6) % 7 + d.W * 7 - (day$1 + 5) % 7 : d.w + d.U * 7 - (day$1 + 6) % 7;
+        }
+
+        // If a time zone is specified, all fields are interpreted as UTC and then
+        // offset according to the specified time zone.
+        if ("Z" in d) {
+          d.H += d.Z / 100 | 0;
+          d.M += d.Z % 100;
+          return utcDate(d);
+        }
+
+        // Otherwise, all fields are in local time.
+        return localDate(d);
+      };
+    }
+
+    function parseSpecifier(d, specifier, string, j) {
+      var i = 0,
+          n = specifier.length,
+          m = string.length,
+          c,
+          parse;
+
+      while (i < n) {
+        if (j >= m) return -1;
+        c = specifier.charCodeAt(i++);
+        if (c === 37) {
+          c = specifier.charAt(i++);
+          parse = parses[c in pads ? specifier.charAt(i++) : c];
+          if (!parse || ((j = parse(d, string, j)) < 0)) return -1;
+        } else if (c != string.charCodeAt(j++)) {
+          return -1;
+        }
+      }
+
+      return j;
+    }
+
+    function parsePeriod(d, string, i) {
+      var n = periodRe.exec(string.slice(i));
+      return n ? (d.p = periodLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
+    }
+
+    function parseShortWeekday(d, string, i) {
+      var n = shortWeekdayRe.exec(string.slice(i));
+      return n ? (d.w = shortWeekdayLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
+    }
+
+    function parseWeekday(d, string, i) {
+      var n = weekdayRe.exec(string.slice(i));
+      return n ? (d.w = weekdayLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
+    }
+
+    function parseShortMonth(d, string, i) {
+      var n = shortMonthRe.exec(string.slice(i));
+      return n ? (d.m = shortMonthLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
+    }
+
+    function parseMonth(d, string, i) {
+      var n = monthRe.exec(string.slice(i));
+      return n ? (d.m = monthLookup.get(n[0].toLowerCase()), i + n[0].length) : -1;
+    }
+
+    function parseLocaleDateTime(d, string, i) {
+      return parseSpecifier(d, locale_dateTime, string, i);
+    }
+
+    function parseLocaleDate(d, string, i) {
+      return parseSpecifier(d, locale_date, string, i);
+    }
+
+    function parseLocaleTime(d, string, i) {
+      return parseSpecifier(d, locale_time, string, i);
+    }
+
+    function formatShortWeekday(d) {
+      return locale_shortWeekdays[d.getDay()];
+    }
+
+    function formatWeekday(d) {
+      return locale_weekdays[d.getDay()];
+    }
+
+    function formatShortMonth(d) {
+      return locale_shortMonths[d.getMonth()];
+    }
+
+    function formatMonth(d) {
+      return locale_months[d.getMonth()];
+    }
+
+    function formatPeriod(d) {
+      return locale_periods[+(d.getHours() >= 12)];
+    }
+
+    function formatQuarter(d) {
+      return 1 + ~~(d.getMonth() / 3);
+    }
+
+    function formatUTCShortWeekday(d) {
+      return locale_shortWeekdays[d.getUTCDay()];
+    }
+
+    function formatUTCWeekday(d) {
+      return locale_weekdays[d.getUTCDay()];
+    }
+
+    function formatUTCShortMonth(d) {
+      return locale_shortMonths[d.getUTCMonth()];
+    }
+
+    function formatUTCMonth(d) {
+      return locale_months[d.getUTCMonth()];
+    }
+
+    function formatUTCPeriod(d) {
+      return locale_periods[+(d.getUTCHours() >= 12)];
+    }
+
+    function formatUTCQuarter(d) {
+      return 1 + ~~(d.getUTCMonth() / 3);
+    }
+
+    return {
+      format: function(specifier) {
+        var f = newFormat(specifier += "", formats);
+        f.toString = function() { return specifier; };
+        return f;
+      },
+      parse: function(specifier) {
+        var p = newParse(specifier += "", false);
+        p.toString = function() { return specifier; };
+        return p;
+      },
+      utcFormat: function(specifier) {
+        var f = newFormat(specifier += "", utcFormats);
+        f.toString = function() { return specifier; };
+        return f;
+      },
+      utcParse: function(specifier) {
+        var p = newParse(specifier += "", true);
+        p.toString = function() { return specifier; };
+        return p;
+      }
+    };
+  }
+
+  var pads = {"-": "", "_": " ", "0": "0"},
+      numberRe = /^\s*\d+/, // note: ignores next directive
+      percentRe = /^%/,
+      requoteRe = /[\\^$*+?|[\]().{}]/g;
+
+  function pad(value, fill, width) {
+    var sign = value < 0 ? "-" : "",
+        string = (sign ? -value : value) + "",
+        length = string.length;
+    return sign + (length < width ? new Array(width - length + 1).join(fill) + string : string);
+  }
+
+  function requote(s) {
+    return s.replace(requoteRe, "\\$&");
+  }
+
+  function formatRe(names) {
+    return new RegExp("^(?:" + names.map(requote).join("|") + ")", "i");
+  }
+
+  function formatLookup(names) {
+    return new Map(names.map((name, i) => [name.toLowerCase(), i]));
+  }
+
+  function parseWeekdayNumberSunday(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 1));
+    return n ? (d.w = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseWeekdayNumberMonday(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 1));
+    return n ? (d.u = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseWeekNumberSunday(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.U = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseWeekNumberISO(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.V = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseWeekNumberMonday(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.W = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseFullYear(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 4));
+    return n ? (d.y = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseYear(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.y = +n[0] + (+n[0] > 68 ? 1900 : 2000), i + n[0].length) : -1;
+  }
+
+  function parseZone(d, string, i) {
+    var n = /^(Z)|([+-]\d\d)(?::?(\d\d))?/.exec(string.slice(i, i + 6));
+    return n ? (d.Z = n[1] ? 0 : -(n[2] + (n[3] || "00")), i + n[0].length) : -1;
+  }
+
+  function parseQuarter(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 1));
+    return n ? (d.q = n[0] * 3 - 3, i + n[0].length) : -1;
+  }
+
+  function parseMonthNumber(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.m = n[0] - 1, i + n[0].length) : -1;
+  }
+
+  function parseDayOfMonth(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.d = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseDayOfYear(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 3));
+    return n ? (d.m = 0, d.d = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseHour24(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.H = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseMinutes(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.M = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseSeconds(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 2));
+    return n ? (d.S = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseMilliseconds(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 3));
+    return n ? (d.L = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseMicroseconds(d, string, i) {
+    var n = numberRe.exec(string.slice(i, i + 6));
+    return n ? (d.L = Math.floor(n[0] / 1000), i + n[0].length) : -1;
+  }
+
+  function parseLiteralPercent(d, string, i) {
+    var n = percentRe.exec(string.slice(i, i + 1));
+    return n ? i + n[0].length : -1;
+  }
+
+  function parseUnixTimestamp(d, string, i) {
+    var n = numberRe.exec(string.slice(i));
+    return n ? (d.Q = +n[0], i + n[0].length) : -1;
+  }
+
+  function parseUnixTimestampSeconds(d, string, i) {
+    var n = numberRe.exec(string.slice(i));
+    return n ? (d.s = +n[0], i + n[0].length) : -1;
+  }
+
+  function formatDayOfMonth(d, p) {
+    return pad(d.getDate(), p, 2);
+  }
+
+  function formatHour24(d, p) {
+    return pad(d.getHours(), p, 2);
+  }
+
+  function formatHour12(d, p) {
+    return pad(d.getHours() % 12 || 12, p, 2);
+  }
+
+  function formatDayOfYear(d, p) {
+    return pad(1 + day.count(year(d), d), p, 3);
+  }
+
+  function formatMilliseconds(d, p) {
+    return pad(d.getMilliseconds(), p, 3);
+  }
+
+  function formatMicroseconds(d, p) {
+    return formatMilliseconds(d, p) + "000";
+  }
+
+  function formatMonthNumber(d, p) {
+    return pad(d.getMonth() + 1, p, 2);
+  }
+
+  function formatMinutes(d, p) {
+    return pad(d.getMinutes(), p, 2);
+  }
+
+  function formatSeconds(d, p) {
+    return pad(d.getSeconds(), p, 2);
+  }
+
+  function formatWeekdayNumberMonday(d) {
+    var day = d.getDay();
+    return day === 0 ? 7 : day;
+  }
+
+  function formatWeekNumberSunday(d, p) {
+    return pad(sunday.count(year(d) - 1, d), p, 2);
+  }
+
+  function dISO(d) {
+    var day = d.getDay();
+    return (day >= 4 || day === 0) ? thursday(d) : thursday.ceil(d);
+  }
+
+  function formatWeekNumberISO(d, p) {
+    d = dISO(d);
+    return pad(thursday.count(year(d), d) + (year(d).getDay() === 4), p, 2);
+  }
+
+  function formatWeekdayNumberSunday(d) {
+    return d.getDay();
+  }
+
+  function formatWeekNumberMonday(d, p) {
+    return pad(monday.count(year(d) - 1, d), p, 2);
+  }
+
+  function formatYear(d, p) {
+    return pad(d.getFullYear() % 100, p, 2);
+  }
+
+  function formatYearISO(d, p) {
+    d = dISO(d);
+    return pad(d.getFullYear() % 100, p, 2);
+  }
+
+  function formatFullYear(d, p) {
+    return pad(d.getFullYear() % 10000, p, 4);
+  }
+
+  function formatFullYearISO(d, p) {
+    var day = d.getDay();
+    d = (day >= 4 || day === 0) ? thursday(d) : thursday.ceil(d);
+    return pad(d.getFullYear() % 10000, p, 4);
+  }
+
+  function formatZone(d) {
+    var z = d.getTimezoneOffset();
+    return (z > 0 ? "-" : (z *= -1, "+"))
+        + pad(z / 60 | 0, "0", 2)
+        + pad(z % 60, "0", 2);
+  }
+
+  function formatUTCDayOfMonth(d, p) {
+    return pad(d.getUTCDate(), p, 2);
+  }
+
+  function formatUTCHour24(d, p) {
+    return pad(d.getUTCHours(), p, 2);
+  }
+
+  function formatUTCHour12(d, p) {
+    return pad(d.getUTCHours() % 12 || 12, p, 2);
+  }
+
+  function formatUTCDayOfYear(d, p) {
+    return pad(1 + utcDay.count(utcYear(d), d), p, 3);
+  }
+
+  function formatUTCMilliseconds(d, p) {
+    return pad(d.getUTCMilliseconds(), p, 3);
+  }
+
+  function formatUTCMicroseconds(d, p) {
+    return formatUTCMilliseconds(d, p) + "000";
+  }
+
+  function formatUTCMonthNumber(d, p) {
+    return pad(d.getUTCMonth() + 1, p, 2);
+  }
+
+  function formatUTCMinutes(d, p) {
+    return pad(d.getUTCMinutes(), p, 2);
+  }
+
+  function formatUTCSeconds(d, p) {
+    return pad(d.getUTCSeconds(), p, 2);
+  }
+
+  function formatUTCWeekdayNumberMonday(d) {
+    var dow = d.getUTCDay();
+    return dow === 0 ? 7 : dow;
+  }
+
+  function formatUTCWeekNumberSunday(d, p) {
+    return pad(utcSunday.count(utcYear(d) - 1, d), p, 2);
+  }
+
+  function UTCdISO(d) {
+    var day = d.getUTCDay();
+    return (day >= 4 || day === 0) ? utcThursday(d) : utcThursday.ceil(d);
+  }
+
+  function formatUTCWeekNumberISO(d, p) {
+    d = UTCdISO(d);
+    return pad(utcThursday.count(utcYear(d), d) + (utcYear(d).getUTCDay() === 4), p, 2);
+  }
+
+  function formatUTCWeekdayNumberSunday(d) {
+    return d.getUTCDay();
+  }
+
+  function formatUTCWeekNumberMonday(d, p) {
+    return pad(utcMonday.count(utcYear(d) - 1, d), p, 2);
+  }
+
+  function formatUTCYear(d, p) {
+    return pad(d.getUTCFullYear() % 100, p, 2);
+  }
+
+  function formatUTCYearISO(d, p) {
+    d = UTCdISO(d);
+    return pad(d.getUTCFullYear() % 100, p, 2);
+  }
+
+  function formatUTCFullYear(d, p) {
+    return pad(d.getUTCFullYear() % 10000, p, 4);
+  }
+
+  function formatUTCFullYearISO(d, p) {
+    var day = d.getUTCDay();
+    d = (day >= 4 || day === 0) ? utcThursday(d) : utcThursday.ceil(d);
+    return pad(d.getUTCFullYear() % 10000, p, 4);
+  }
+
+  function formatUTCZone() {
+    return "+0000";
+  }
+
+  function formatLiteralPercent() {
+    return "%";
+  }
+
+  function formatUnixTimestamp(d) {
+    return +d;
+  }
+
+  function formatUnixTimestampSeconds(d) {
+    return Math.floor(+d / 1000);
+  }
+
+  var locale;
+  var utcFormat;
+  var utcParse;
+
+  defaultLocale({
+    dateTime: "%x, %X",
+    date: "%-m/%-d/%Y",
+    time: "%-I:%M:%S %p",
+    periods: ["AM", "PM"],
+    days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    shortDays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    shortMonths: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  });
+
+  function defaultLocale(definition) {
+    locale = formatLocale(definition);
+    utcFormat = locale.utcFormat;
+    utcParse = locale.utcParse;
+    return locale;
+  }
+
+  var isoSpecifier = "%Y-%m-%dT%H:%M:%S.%LZ";
+
+  function formatIsoNative(date) {
+    return date.toISOString();
+  }
+
+  Date.prototype.toISOString
+      ? formatIsoNative
+      : utcFormat(isoSpecifier);
+
+  function parseIsoNative(string) {
+    var date = new Date(string);
+    return isNaN(date) ? null : date;
+  }
+
+  +new Date("2000-01-01T00:00:00.000Z")
+      ? parseIsoNative
+      : utcParse(isoSpecifier);
 
   function ready(data) {
     buildSelectUI();
-    buildAPIChart(info, data);
+    dispatch.on('blurb', function (e) {
+      console.log(e);
+      // buildAPIChart(info, data, e);
+    });
   }
 
   csv(`${dataUrl}?${Math.random()}`, autoType).then(ready);

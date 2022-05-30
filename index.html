@@ -22,12 +22,21 @@
         <input type="text" name="vis-id-input" id="vis-id-input" />
         <label for="vis-id-input">Please enter the Flourish vis ID</label>
       </div>
+      <div id="data-url" class="ui">
+        <input type="text" name="data-url-input" id="data-url-input" />
+        <label for="data-url-input"
+          >Data URL (optional | taken from visualisation if empty data)</label
+        >
+      </div>
       <div id="template-selections" class="ui">
         <select name="template-id" id="template-id"></select>
         <select name="template-version" id="template-version"></select>
       </div>
       <div id="binding-selections"></div>
       <div id="setting-selections"></div>
+      <div id="submit-button">
+        <button id="submit">Submit</button>
+      </div>
     </div>
     <div id="chart-container"></div>
 

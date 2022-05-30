@@ -1,12 +1,18 @@
+/* eslint-disable no-restricted-syntax */
 import { group } from 'd3-array';
-import { json } from 'd3-fetch';
+import { csv, json } from 'd3-fetch';
 import { select, selectAll } from 'd3-selection';
-import { apiKey } from './state.js';
+import cloneDeep from 'lodash.clonedeep';
+import { apiKey, dispatch } from './state.js';
+
+// Globals.
+let visJsonOptions;
 
 // Helpers.
 function show(selector) {
   selectAll('.ui').style('display', 'none');
   select(selector).style('display', 'flex');
+  select('#data-url').style('display', 'flex');
 }
 
 async function sendMetadataRequest(templateId, version) {
@@ -57,6 +63,19 @@ function getObjectNamedBindings(bindingObject, dataArray) {
   return objectBindings;
 }
 
+// Takes an array of objects and returns an object nested by a specific key
+function groupArrayToObjectByKey(array, key) {
+  const object = {};
+  for (let i = 0; i < array.length; i++) {
+    if (i === 0 || array[i][key] !== array[i - 1][key]) {
+      object[array[i][key]] = {};
+    }
+    object[array[i][key]] = { ...object[array[i][key]], ...array[i] };
+    delete object[array[i][key]][key];
+  }
+  return object;
+}
+
 // Build.
 function buildBindingsUi(bindings, bindingsGiven) {
   const bindingsClean = bindings.filter(d => typeof d !== 'string');
@@ -76,21 +95,19 @@ function buildBindingsUi(bindings, bindingsGiven) {
     .selectAll('.binding')
     .data(d => d[1])
     .join('div')
-    .attr('class', 'binding')
-    .attr('id', d => `${d.dataset}-${d.key}`);
-
-  console.log(bindingsGiven);
+    .attr('class', 'binding');
 
   // Build labels and inputs for each binding.
   bindingElements
     .append('input')
     .attr('type', 'text')
+    .attr('id', d => `${d.dataset}-${d.key}`)
     // Fill values if they're given in the original dataset.
     .attr('value', d => bindingsGiven[d.dataset][d.key]);
 
   bindingElements
     .append('label')
-    .attr('for', d => `input#${d.dataset}-${d.key}`)
+    .attr('for', d => `${d.dataset}-${d.key}`)
     .html(
       d =>
         `${d.name} (${d.type === 'columns' ? 'multi' : 'single'}${d.optional ? ' | optional' : ''})`
@@ -143,6 +160,53 @@ function buildTemplatePickUI() {
   });
 }
 
+// Submit.
+function setColumnType(type, value) {
+  if (type === 'column') {
+    return value;
+  }
+  if (type === 'columns') {
+    return value.split(',');
+  }
+
+  throw Error(`Column type ${type} unknown`);
+}
+
+async function handleSubmit() {
+  console.log('api options initial', visJsonOptions);
+
+  // Get base.
+  const base = {
+    template: visJsonOptions.template,
+    version: visJsonOptions.template,
+    api_key: apiKey,
+    container: '#chart-container', // ultimately needs to come from WP module
+  };
+
+  // Get data
+  const dataUrl = select('#data-url-input').node().value;
+  const dataset = dataUrl ? await csv(dataUrl) : visJsonOptions.data;
+
+  // Get bindings
+  const userBindingsArray = [];
+  selectAll('.binding input').each(function (d) {
+    userBindingsArray.push({
+      dataset: d.dataset,
+      [d.key]: setColumnType(d.type, this.value),
+    });
+  });
+  const userBindings = groupArrayToObjectByKey(userBindingsArray, 'dataset');
+
+  // Get settings
+  const state = cloneDeep(visJsonOptions.state);
+
+  dispatch.call('blurb', this, { base, data: dataset, bindings: userBindings, state });
+}
+
+function collectAndSubmitData() {
+  select('button#submit').style('display', 'block').on('click', handleSubmit);
+}
+
 // Paths.
 function emptyChartPath() {
   show('#template-selections');
@@ -151,11 +215,17 @@ function emptyChartPath() {
 
 function baseChartPath() {
   show('#vis-id');
+
   select('#vis-id input').on('change', async function () {
     const visJson = await sendVisJsonRequest(this.value);
+    visJsonOptions = cloneDeep(visJson); // we'll need them later to update
+
     const metadata = await sendMetadataRequest(visJson.template, visJson.version);
+
     const bindingsGiven = getObjectNamedBindings(visJson.bindings, visJson.data);
     buildBindingsUi(metadata.data_bindings, bindingsGiven);
+
+    collectAndSubmitData();
   });
 }
 

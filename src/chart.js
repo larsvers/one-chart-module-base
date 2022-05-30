@@ -22,7 +22,7 @@ function mutateOptions() {
   // not doing anything yet
 }
 
-async function buildAPIChart(info, chartData) {
+async function buildAPIChart(info, chartData, bindingsForNow) {
   // Compose the API options.
   const config = await getBaseChartConfig(info.base_chart);
 
@@ -37,7 +37,8 @@ async function buildAPIChart(info, chartData) {
   const state = {
     state: cloneDeep(config.state),
   };
-
+  console.log(bindingsForNow);
+  debugger;
   // Add any kind of template specific bindings config here
   // (or let that happen in WP)
   const bindings = {

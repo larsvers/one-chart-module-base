@@ -1,3 +1,8 @@
+/* eslint-disable camelcase */
+import { dispatch as d3_dispatch } from 'd3-dispatch';
+
+const dispatch = d3_dispatch('blurb');
+
 const dataUrl =
   'https://raw.githubusercontent.com/larsvers/one-chart-module-base/main/data/c02_covid_impacts_latest.csv?token=GHSAT0AAAAAABRDVE5JKVC7HIK5YHGDDQIQYUH3FMA';
 
@@ -21,4 +26,4 @@ const info = {
   },
 };
 
-export { dataUrl, apiKey, info };
+export { dataUrl, apiKey, info, dispatch };

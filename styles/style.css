@@ -4,17 +4,21 @@ body * {
 }
 
 #vis-id,
+#data-url,
 #template-selections {
   display: flex;
   display: none;
 }
 
-#vis-id {
+#vis-id,
+#data-url {
   align-items: baseline;
 }
 
 #vis-id-input,
-#template-selections select {
+#data-url-input,
+#template-selections select,
+#submit {
   margin: 1rem 0.3rem;
   padding: 0.2rem 0.4rem;
   border-radius: 3px;
@@ -28,4 +32,8 @@ body * {
 
 .binding label {
   padding-left: 0.5rem;
+}
+
+button#submit {
+  display: none;
 }
