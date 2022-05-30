@@ -3,13 +3,14 @@ import { csv } from 'd3-fetch';
 
 import { dataUrl, dispatch, info } from './state';
 import { buildSelectUI } from './ui';
-import { buildAPIChart } from './chart';
+import { buildAPIChart, buildAPIChart2 } from './chart';
 
 function ready(data) {
   buildSelectUI();
-  dispatch.on('blurb', function (e) {
-    console.log(e);
-    // buildAPIChart(info, data, e);
+  dispatch.on('blurb', function (eventData) {
+    // console.log(eventData);
+    // buildAPIChart(info, data);
+    buildAPIChart2(eventData);
   });
 }
 

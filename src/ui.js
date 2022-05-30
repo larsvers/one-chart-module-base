@@ -30,6 +30,7 @@ async function sendVisJsonRequest(visId) {
   return result;
 }
 
+// Convert binding names to indeces and vice versa.
 function getBindingNames(bindings, data) {
   // The column names in an array.
   const colNames = data[0];
@@ -53,13 +54,53 @@ function getBindingNames(bindings, data) {
   return bindingNameObject;
 }
 
-function getObjectNamedBindings(bindingObject, dataArray) {
+function getBindingIndeces(bindings, data) {
+  // The column names in an array.
+  const colNames = data[0];
+  const bindingIndecesObject = {};
+
+  // This will map the column name indeces to the column names.
+  for (const key in bindings) {
+    // Probably already an array index
+    if (!isNaN(bindings[key])) {
+      break;
+    }
+    // Replace numeric index.
+    if (typeof bindings[key] === 'string') {
+      bindingIndecesObject[key] = colNames.indexOf(bindings[key]);
+    }
+    // Replace array of numeric indeces.
+    else {
+      bindingIndecesObject[key] = bindings[key].map(d => colNames.indexOf(d));
+    }
+  }
+  return bindingIndecesObject;
+}
+
+function getObjectBindings(bindingObject, dataArray, direction) {
   // There can be multiple datasets per template (ie. Projection Map has three)
   // First we loop through each dataset here and then get each dataset's bindings.
+
+  // `direction` decides if we move index to name ('to_name') or from name to index ('to_index').
+
   const objectBindings = {};
-  for (const bindingKey in bindingObject) {
-    objectBindings[bindingKey] = getBindingNames(bindingObject[bindingKey], dataArray[bindingKey]);
-  }
+
+  if (direction === 'to_name') {
+    for (const bindingKey in bindingObject) {
+      objectBindings[bindingKey] = getBindingNames(
+        bindingObject[bindingKey],
+        dataArray[bindingKey]
+      );
+    }
+  } else if (direction === 'to_index') {
+    for (const bindingKey in bindingObject) {
+      objectBindings[bindingKey] = getBindingIndeces(
+        bindingObject[bindingKey],
+        dataArray[bindingKey]
+      );
+    }
+  } else throw Error(`direction argument ${direction} unknown`);
+
   return objectBindings;
 }
 
@@ -90,7 +131,7 @@ function buildBindingsUi(bindings, bindingsGiven) {
     .attr('id', d => d[0])
     .html(d => d[0][0].toUpperCase() + d[0].substring(1));
 
-  // Build a input wrapper for each binding.
+  // Build an input wrapper for each binding.
   const bindingElements = datasets
     .selectAll('.binding')
     .data(d => d[1])
@@ -155,52 +196,83 @@ function buildTemplatePickUI() {
   versionSelection.on('change', async function () {
     const selectedVersion = this.value;
     const response = await sendMetadataRequest(selectedTemplateId, selectedVersion);
-    console.log(response);
     buildBindingsUi(response.data_bindings);
   });
 }
 
 // Submit.
-function setColumnType(type, value) {
+function setColumnType(type, value, keys) {
   if (type === 'column') {
-    return value;
+    const idx = keys.indexOf(value);
+    return idx < 0 ? '' : idx;
   }
   if (type === 'columns') {
-    return value.split(',');
+    return value.split(',').map(d => {
+      const idx = keys.indexOf(d);
+      return idx < 0 ? '' : idx;
+    });
   }
 
   throw Error(`Column type ${type} unknown`);
 }
 
-async function handleSubmit() {
-  console.log('api options initial', visJsonOptions);
+function convertToArrayOfArrays(array) {
+  const keys = Object.keys(array[0]);
+  const arrayOfArrays = array.map(Object.values);
+  arrayOfArrays.unshift(keys);
+  return arrayOfArrays;
+}
 
+async function handleSubmit() {
   // Get base.
   const base = {
     template: visJsonOptions.template,
-    version: visJsonOptions.template,
+    version: visJsonOptions.version,
     api_key: apiKey,
     container: '#chart-container', // ultimately needs to come from WP module
   };
 
   // Get data
   const dataUrl = select('#data-url-input').node().value;
-  const dataset = dataUrl ? await csv(dataUrl) : visJsonOptions.data;
+  let dataset;
+  if (dataUrl) {
+    // Data comes in as array of objects but we'll
+    // convert it to array of arrays to be consistent
+    const dataArrayOfObjects = await csv(dataUrl);
+    const dataArrayOfArrays = convertToArrayOfArrays(dataArrayOfObjects);
+    dataset = { data: dataArrayOfArrays };
+  } else {
+    dataset = visJsonOptions.data;
+  }
+
+  const datakeys = dataset.data[0];
 
   // Get bindings
   const userBindingsArray = [];
   selectAll('.binding input').each(function (d) {
-    userBindingsArray.push({
-      dataset: d.dataset,
-      [d.key]: setColumnType(d.type, this.value),
-    });
+    // Only push bindings with values.
+    if (this.value) {
+      userBindingsArray.push({
+        dataset: d.dataset,
+        [d.key]: setColumnType(d.type, this.value, datakeys),
+      });
+    }
   });
+
   const userBindings = groupArrayToObjectByKey(userBindingsArray, 'dataset');
 
   // Get settings
   const state = cloneDeep(visJsonOptions.state);
 
-  dispatch.call('blurb', this, { base, data: dataset, bindings: userBindings, state });
+  dispatch.call('blurb', this, {
+    base,
+    // TODO the dataset has a specific name
+    // Should be straight forward if hauled in through the vis.json
+    // But would need to be user mapped to the right data set if uploaded.
+    data: { data: dataset },
+    bindings: { bindings: userBindings },
+    state: { state },
+  });
 }
 
 function collectAndSubmitData() {
@@ -222,7 +294,7 @@ function baseChartPath() {
 
     const metadata = await sendMetadataRequest(visJson.template, visJson.version);
 
-    const bindingsGiven = getObjectNamedBindings(visJson.bindings, visJson.data);
+    const bindingsGiven = getObjectBindings(visJson.bindings, visJson.data, 'to_name');
     buildBindingsUi(metadata.data_bindings, bindingsGiven);
 
     collectAndSubmitData();

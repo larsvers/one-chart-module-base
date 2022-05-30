@@ -22,7 +22,7 @@ function mutateOptions() {
   // not doing anything yet
 }
 
-async function buildAPIChart(info, chartData, bindingsForNow) {
+async function buildAPIChart(info, chartData) {
   // Compose the API options.
   const config = await getBaseChartConfig(info.base_chart);
 
@@ -37,8 +37,7 @@ async function buildAPIChart(info, chartData, bindingsForNow) {
   const state = {
     state: cloneDeep(config.state),
   };
-  console.log(bindingsForNow);
-  debugger;
+
   // Add any kind of template specific bindings config here
   // (or let that happen in WP)
   const bindings = {
@@ -69,9 +68,18 @@ async function buildAPIChart(info, chartData, bindingsForNow) {
   mutateOptions(info, state);
 
   const apiOptions = { ...base, ...state, ...bindings, ...data };
+  console.log('apiOptions1', apiOptions);
 
   const visual = new Flourish.Live(apiOptions);
-  // console.log(visual);
 }
 
-export { buildAPIChart };
+function buildAPIChart2({ base, data, bindings, state }) {
+  // console.log('hello', base, data, bindings, state);
+
+  const apiOptions = { ...base, ...data, ...bindings, ...state };
+  console.log('apiOptions2', apiOptions);
+
+  const visual = new Flourish.Live(apiOptions);
+}
+
+export { buildAPIChart, buildAPIChart2 };
