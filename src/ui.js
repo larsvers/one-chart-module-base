@@ -180,12 +180,29 @@ async function handleSubmit() {
   // Get settings
   const state = visJsonOptions ? cloneDeep(visJsonOptions.state) : undefined;
 
+  function parseSetting(string) {
+    const parsed = string.split('|').map(d => d.trim());
+    return {
+      setting: parsed[0],
+      value: parsed[1],
+    };
+  }
+
+  const parsedSettings = [];
+  selectAll('#setting-area textarea').each(function () {
+    if (this.value) {
+      const parsedSetting = parseSetting(this.value);
+      parsedSettings.push(parsedSetting);
+    }
+  });
+
   // Dispatch data
   dispatch.call('apidata', this, {
     base,
     data: { ...datasets },
     bindings: { ...userBindings },
     state: { state },
+    userSettings: parsedSettings,
   });
 }
 
@@ -208,6 +225,10 @@ function buildSettingsUI() {
   // Let the user build and remove.
   select('#add-input').on('click', buildNewTextArea);
   select('#remove-input').on('click', removeTextArea);
+
+  // TODO remove - just for testing
+  console.log('color.categorical_custom_palette | "South Africa: red"');
+  console.log('layout.title | "Hello 🥂"');
 }
 
 function buildBindingsUI(bindings, bindingsGiven) {

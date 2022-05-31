@@ -4313,12 +4313,29 @@
     // Get settings
     const state = visJsonOptions ? cloneDeep(visJsonOptions.state) : undefined;
 
+    function parseSetting(string) {
+      const parsed = string.split('|').map(d => d.trim());
+      return {
+        setting: parsed[0],
+        value: parsed[1],
+      };
+    }
+
+    const parsedSettings = [];
+    selectAll('#setting-area textarea').each(function () {
+      if (this.value) {
+        const parsedSetting = parseSetting(this.value);
+        parsedSettings.push(parsedSetting);
+      }
+    });
+
     // Dispatch data
     dispatch.call('apidata', this, {
       base,
       data: { ...datasets },
       bindings: { ...userBindings },
       state: { state },
+      userSettings: parsedSettings,
     });
   }
 
@@ -4341,6 +4358,10 @@
     // Let the user build and remove.
     select('#add-input').on('click', buildNewTextArea);
     select('#remove-input').on('click', removeTextArea);
+
+    // TODO remove - just for testing
+    console.log('color.categorical_custom_palette | "South Africa: red"');
+    console.log('layout.title | "Hello 🥂"');
   }
 
   function buildBindingsUI(bindings, bindingsGiven) {
@@ -5651,11 +5672,17 @@
   	Live: Fleet
   };
 
-  function buildAPIChart({ base, data, bindings, state }) {
+  function buildAPIChart({ base, data, bindings, state, userSettings }) {
+    // Amend settings changed by user.
     const clonedState = cloneDeep(state);
 
-    lodash_set(clonedState.state, 'color.categorical_custom_palette', 'South Africa:skyblue');
+    if (userSettings.length) {
+      userSettings.forEach(d => {
+        lodash_set(clonedState.state, d.setting, d.value);
+      });
+    }
 
+    // Compose and build visual
     const apiOptions = { ...base, ...data, ...bindings, ...clonedState };
     new Flourish.Live(apiOptions);
   }

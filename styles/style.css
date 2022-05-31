@@ -3,8 +3,18 @@ body * {
   font-family: 'Source Sans Pro', sans-serif;
 }
 
+#select-ui,
+#chart-container {
+  margin: 2rem 1rem;
+  padding: 1rem;
+  box-shadow: 2px 2px 20px #eee;
+  border: 1px solid #eee;
+}
+
 h3 {
   margin: 0 0 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #eee;
 }
 
 #option-path,
@@ -50,6 +60,12 @@ button {
   border: 1px solid #ccc;
   border-radius: 0px;
   color: #333;
+  transition: all 0.2s;
+}
+
+#option-path button:focus {
+  background-color: #555;
+  color: #eee;
 }
 
 button#submit {
