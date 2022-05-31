@@ -4137,7 +4137,7 @@
 
   var lodash_set = set;
 
-  /* eslint-disable no-restricted-syntax */
+  /* eslint-disable no-plusplus */
 
   // Globals.
   let visJsonOptions;
@@ -4165,7 +4165,7 @@
         break;
       }
       // Replace numeric index.
-      else if (!isNaN(bindings[key])) {
+      else if (!Number.isNaN(bindings[key])) {
         bindingNameObject[key] = colNames[bindings[key]];
       }
       // Replace array of numeric indeces.
@@ -4182,9 +4182,9 @@
     const bindingIndecesObject = {};
 
     // This will map the column name indeces to the column names.
-    for (const key in bindings) {
+    for (const key of bindings) {
       // Probably already an array index
-      if (!isNaN(bindings[key])) {
+      if (!Number.isNaN(bindings[key])) {
         break;
       }
       // Replace numeric index.
@@ -4208,14 +4208,18 @@
     const objectBindings = {};
 
     if (direction === 'to_name') {
-      for (const bindingKey in bindingObject) {
+      for (let i = 0, keys = Object.keys(bindingObject); i < keys.length; i++) {
+        const bindingKey = keys[i];
+
         objectBindings[bindingKey] = getBindingNames(
           bindingObject[bindingKey],
           dataArray[bindingKey]
         );
       }
     } else if (direction === 'to_index') {
-      for (const bindingKey in bindingObject) {
+      for (let i = 0, keys = Object.keys(bindingObject); i < keys.length; i++) {
+        const bindingKey = keys[i];
+
         objectBindings[bindingKey] = getBindingIndeces(
           bindingObject[bindingKey],
           dataArray[bindingKey]
@@ -4233,7 +4237,6 @@
     templateId
   )}&version=${version}`;
     const result = await json(endpoint);
-    console.log(result);
     return result;
   }
 
@@ -4360,8 +4363,8 @@
     select('#remove-input').on('click', removeTextArea);
 
     // TODO remove - just for testing
-    console.log('color.categorical_custom_palette | "South Africa: red"');
-    console.log('layout.title | "Hello 🥂"');
+    console.log('color.categorical_custom_palette | South Africa: red');
+    console.log('layout.title | Hello 🥂');
   }
 
   function buildBindingsUI(bindings, bindingsGiven) {
@@ -4503,6 +4506,7 @@
     select('#option-path')
       .selectAll('button')
       .on('click', function () {
+        // eslint-disable-next-line no-unused-expressions
         this.dataset.option === 'base_chart' ? baseChartPath() : emptyChartPath();
       });
   }
@@ -5672,6 +5676,8 @@
   	Live: Fleet
   };
 
+  let visual;
+
   function buildAPIChart({ base, data, bindings, state, userSettings }) {
     // Amend settings changed by user.
     const clonedState = cloneDeep(state);
@@ -5684,7 +5690,12 @@
 
     // Compose and build visual
     const apiOptions = { ...base, ...data, ...bindings, ...clonedState };
-    new Flourish.Live(apiOptions);
+
+    if (!visual) {
+      visual = new Flourish.Live(apiOptions);
+    } else {
+      visual.update(apiOptions);
+    }
   }
 
   buildSelectUI();
