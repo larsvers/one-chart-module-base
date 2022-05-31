@@ -4141,6 +4141,9 @@
 
   // Globals.
   let visJsonOptions;
+  let metadata;
+  let selectedTemplateId;
+  let selectedVersion;
 
   // Helpers.
   function show(selector) {
@@ -4264,7 +4267,7 @@
     dataUrl
       .append('label')
       .attr('for', d => `data-url-input-${d[0]}`)
-      .html(`Data URL (optional | taken from visualisation if empty)`);
+      .html(visJsonOptions ? 'Data URL (optional | taken from visualisation if empty)' : 'Data URL');
 
     // Build an input wrapper for each binding.
     const bindingElements = datasets
@@ -4279,7 +4282,7 @@
       .attr('type', 'text')
       .attr('id', d => `${d.dataset}-${d.key}`)
       // Fill values if they're given in the original dataset.
-      .attr('value', d => bindingsGiven[d.dataset][d.key]);
+      .attr('value', d => (bindingsGiven ? bindingsGiven[d.dataset][d.key] : ''));
 
     bindingElements
       .append('label')
@@ -4303,40 +4306,47 @@
     const versionSelection = select('#template-version');
 
     // Build
-    let selectedTemplateId;
-
     function setVersionSelect(versions) {
       versionSelection
-        .selectAll('option')
+        .selectAll('.data-option')
         .data(versions)
         .join('option')
         .attr('value', d => d)
+        .attr('class', 'data-option')
         .html(d => d);
     }
 
     templateSelection
-      .selectAll('option')
+      .selectAll('.data-option')
       .data(templateList)
       .join('option')
+      .attr('class', 'data-option')
       .attr('value', d => d.id)
       .html(d => d.id);
 
     // Handlers
     templateSelection.on('change', function () {
-      selectedTemplateId = this.value;
+      selectedTemplateId = this.value; // global
       const { versions } = templateList.filter(d => d.id === selectedTemplateId)[0];
       setVersionSelect(versions);
     });
 
     versionSelection.on('change', async function () {
-      const selectedVersion = this.value;
+      selectedVersion = this.value; // global
       const response = await sendMetadataRequest(selectedTemplateId, selectedVersion);
+      metadata = cloneDeep(response);
+
       buildBindingsUi(response.data_bindings);
+
+      // Collate the data/bindings info and send final api data off.
+      collectAndSubmitData();
     });
   }
 
   // Submit.
   function setColumnType(type, value, keys) {
+    // Expects the binding values as names and returns
+    // them as column indeces based on the column `keys`.
     if (type === 'column') {
       const idx = keys.indexOf(value);
       return idx < 0 ? '' : idx;
@@ -4359,10 +4369,17 @@
   }
 
   async function handleSubmit() {
+    // Detect path (base vs empty chart).
+    if (!visJsonOptions && !metadata)
+      throw Error('Neither visualisation.json nor metadata available');
+
+    // Note, the existance of a pulled `/visualisation.json` stands as proof
+    // of a base chart visual as we don't pull it for an empty chart.
+
     // Get base.
     const base = {
-      template: visJsonOptions.template,
-      version: visJsonOptions.version,
+      template: visJsonOptions ? visJsonOptions.template : selectedTemplateId,
+      version: visJsonOptions ? visJsonOptions.version : selectedVersion,
       api_key: apiKey,
       container: '#chart-container', // ultimately needs to come from WP module
     };
@@ -4394,7 +4411,7 @@
     });
 
     // Get settings
-    const state = cloneDeep(visJsonOptions.state);
+    const state = visJsonOptions ? cloneDeep(visJsonOptions.state) : undefined;
 
     // Dispatch data
     dispatch.call('apidata', this, {
@@ -4419,14 +4436,20 @@
     show('#vis-id');
 
     select('#vis-id input').on('change', async function () {
+      // Get the user given /visualisation.json
       const visJson = await sendVisJsonRequest(this.value);
       visJsonOptions = cloneDeep(visJson); // we'll need them later to update
 
-      const metadata = await sendMetadataRequest(visJson.template, visJson.version);
+      // Get the template's metadata.
+      const templateMetadata = await sendMetadataRequest(visJson.template, visJson.version);
+      metadata = cloneDeep(templateMetadata); // needed later to check base vs empty path
 
+      // Convert the bindings given by the visualisation.json as column indeces to names
+      // and build out the data/bindings UI.
       const bindingsGiven = getObjectBindings(visJson.bindings, visJson.data, 'to_name');
       buildBindingsUi(metadata.data_bindings, bindingsGiven);
 
+      // Collate the data/bindings info and send final api data off.
       collectAndSubmitData();
     });
   }

@@ -23,8 +23,12 @@
         <label for="vis-id-input">Please enter the Flourish vis ID</label>
       </div>
       <div id="template-selections" class="ui form-section">
-        <select name="template-id" id="template-id"></select>
-        <select name="template-version" id="template-version"></select>
+        <select name="template-id" id="template-id">
+          <option disabled selected value>Please select...</option>
+        </select>
+        <select name="template-version" id="template-version">
+          <option disabled selected value>Please select...</option>
+        </select>
       </div>
       <div id="binding-selections" class="form-section"></div>
       <div id="setting-selections" class="form-section"></div>

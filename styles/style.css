@@ -23,6 +23,12 @@ body * {
   margin: 0.25rem;
 }
 
+select {
+  margin-right: 0.4rem;
+  padding: 0.2rem;
+  border: 1px solid #ccc;
+}
+
 input {
   border: 1px solid #ccc
 }
