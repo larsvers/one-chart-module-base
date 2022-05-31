@@ -148,7 +148,7 @@ async function handleSubmit() {
     template: visJsonOptions ? visJsonOptions.template : selectedTemplateId,
     version: visJsonOptions ? visJsonOptions.version : selectedVersion,
     api_key: apiKey,
-    container: '#chart-container', // ultimately needs to come from WP module
+    container: document.querySelector('#container-input').value,
   };
 
   // Get data.
