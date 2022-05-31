@@ -3,16 +3,20 @@ body * {
   font-family: 'Source Sans Pro', sans-serif;
 }
 
-#vis-id,
-#data-url,
-#template-selections {
-  display: flex;
-  display: none;
+h3 {
+  margin: 0 0 1rem;
 }
 
+#option-path,
+.path,
 .form-section {
   margin: 0.75rem;
   padding: 0.25rem;
+}
+
+.path,
+.form-section {
+  display: none;
 }
 
 .dataset {
@@ -50,4 +54,23 @@ button {
 
 button#submit {
   display: none;
+}
+
+#setting-selections {
+  display: none;
+}
+
+#setting-area-controls button {
+  font-weight: 800;
+  border-radius: 50%;
+}
+
+#setting-area {
+  display: flex;
+  flex-direction: column;
+  max-width: 200px;
+}
+
+#setting-area textarea {
+  margin: 0.5rem 0;
 }

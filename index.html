@@ -14,15 +14,15 @@
   </head>
   <body>
     <div id="select-ui">
-      <div id="option-path" class="form-section">
+      <div id="option-path">
         <button id="base-chart" data-option="base_chart">Base Chart</button>
         <button id="empty-chart" data-option="empty_chart">Empty Chart</button>
       </div>
-      <div id="vis-id" class="ui form-section">
+      <div id="vis-id" class="path">
         <input type="text" name="vis-id-input" id="vis-id-input" />
         <label for="vis-id-input">Please enter the Flourish vis ID</label>
       </div>
-      <div id="template-selections" class="ui form-section">
+      <div id="template-selections" class="path">
         <select name="template-id" id="template-id">
           <option disabled selected value>Please select...</option>
         </select>
@@ -30,8 +30,17 @@
           <option disabled selected value>Please select...</option>
         </select>
       </div>
-      <div id="binding-selections" class="form-section"></div>
-      <div id="setting-selections" class="form-section"></div>
+      <div id="binding-selections" class="form-section">
+        <h3>Data and Data bindings</h3>
+      </div>
+      <div id="setting-selections" class="form-section">
+        <h3>Chart settings</h3>
+        <div id="setting-area-controls">
+          <button id="add-input">+</button>
+          <button id="remove-input">&#8211;</button>
+        </div>
+        <div id="setting-area"></div>
+      </div>
       <div id="submit-button" class="form-section">
         <button id="submit">Submit</button>
       </div>

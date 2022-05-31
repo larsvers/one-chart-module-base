@@ -4147,24 +4147,8 @@
 
   // Helpers.
   function show(selector) {
-    selectAll('.ui').style('display', 'none');
-    select(selector).style('display', 'flex');
-    select('#data-url').style('display', 'flex');
-  }
-
-  async function sendMetadataRequest(templateId, version) {
-    // Left out `&auto=1`
-    const endpoint = `https://flourish-api.com/api/v1/live/metadata?api_key=${apiKey}&template=${encodeURIComponent(
-    templateId
-  )}&version=${version}`;
-    const result = await json(endpoint);
-    return result;
-  }
-
-  async function sendVisJsonRequest(visId) {
-    const endpoint = `https://public.flourish.studio/visualisation/${visId}/visualisation.json`;
-    const result = await json(endpoint);
-    return result;
+    selectAll('.path').style('display', 'none');
+    select(selector).style('display', 'block');
   }
 
   // Convert binding names to indeces and vice versa.
@@ -4242,8 +4226,127 @@
     return objectBindings;
   }
 
+  // Requests
+  async function sendMetadataRequest(templateId, version) {
+    // Left out `&auto=1`
+    const endpoint = `https://flourish-api.com/api/v1/live/metadata?api_key=${apiKey}&template=${encodeURIComponent(
+    templateId
+  )}&version=${version}`;
+    const result = await json(endpoint);
+    console.log(result);
+    return result;
+  }
+
+  async function sendVisJsonRequest(visId) {
+    const endpoint = `https://public.flourish.studio/visualisation/${visId}/visualisation.json`;
+    const result = await json(endpoint);
+    return result;
+  }
+
+  // Submit.
+  function setColumnType(type, value, keys) {
+    // Expects the binding values as names and returns
+    // them as column indeces based on the column `keys`.
+    if (type === 'column') {
+      const idx = keys.indexOf(value);
+      return idx < 0 ? '' : idx;
+    }
+    if (type === 'columns') {
+      return value.split(',').map(d => {
+        const idx = keys.indexOf(d);
+        return idx < 0 ? '' : idx;
+      });
+    }
+
+    throw Error(`Column type ${type} unknown`);
+  }
+
+  function convertToArrayOfArrays(array) {
+    const keys = Object.keys(array[0]);
+    const arrayOfArrays = array.map(Object.values);
+    arrayOfArrays.unshift(keys);
+    return arrayOfArrays;
+  }
+
+  async function handleSubmit() {
+    // Detect path (base vs empty chart).
+    if (!visJsonOptions && !metadata)
+      throw Error('Neither visualisation.json nor metadata available');
+
+    // Note, the existance of a pulled `/visualisation.json` stands as proof
+    // of a base chart visual as we don't pull it for an empty chart.
+
+    // Get base.
+    const base = {
+      template: visJsonOptions ? visJsonOptions.template : selectedTemplateId,
+      version: visJsonOptions ? visJsonOptions.version : selectedVersion,
+      api_key: apiKey,
+      container: '#chart-container', // ultimately needs to come from WP module
+    };
+
+    // Get data.
+    const dataInputs = selectAll('.data-url input').nodes();
+    const datasets = { data: {} };
+    for (const input of dataInputs) {
+      const datasetName = select(input).datum()[0];
+      const url = input.value;
+      const data = url ? convertToArrayOfArrays(await csv(url)) : visJsonOptions.data[datasetName];
+      datasets.data[datasetName] = data;
+    }
+
+    // Get bindings
+    const userBindings = { bindings: {} };
+    selectAll('.binding input').each(function (d) {
+      // Columns of the respective dataset.
+      const dataColumns = datasets.data[d.dataset][0];
+      // Only push bindings with values.
+      if (this.value) {
+        // https://lodash.com/docs/4.17.15#set
+        lodash_set(
+          userBindings.bindings,
+          [d.dataset, d.key],
+          setColumnType(d.type, this.value, dataColumns)
+        );
+      }
+    });
+
+    // Get settings
+    const state = visJsonOptions ? cloneDeep(visJsonOptions.state) : undefined;
+
+    // Dispatch data
+    dispatch.call('apidata', this, {
+      base,
+      data: { ...datasets },
+      bindings: { ...userBindings },
+      state: { state },
+    });
+  }
+
+  function collectAndSubmitData() {
+    select('button#submit').style('display', 'block').on('click', handleSubmit);
+  }
+
   // Build.
-  function buildBindingsUi(bindings, bindingsGiven) {
+  function buildSettingsUI() {
+    function buildNewTextArea() {
+      select('#setting-area').append('textarea').attr('cols', 30).attr('rows', 1);
+    }
+
+    function removeTextArea() {
+      selectAll('#setting-area textarea')
+        .filter((d, i, nodes) => i === nodes.length - 1)
+        .remove();
+    }
+
+    // Let the user build and remove.
+    select('#add-input').on('click', buildNewTextArea);
+    select('#remove-input').on('click', removeTextArea);
+  }
+
+  function buildBindingsUI(bindings, bindingsGiven) {
+    // Show full UI.
+    selectAll('.form-section').style('display', 'block');
+
     const bindingsClean = bindings.filter(d => typeof d !== 'string');
     const bindingsMap = group(bindingsClean, d => d.dataset);
 
@@ -4336,102 +4439,14 @@
       const response = await sendMetadataRequest(selectedTemplateId, selectedVersion);
       metadata = cloneDeep(response);
 
-      buildBindingsUi(response.data_bindings);
+      buildBindingsUI(response.data_bindings);
 
       // Collate the data/bindings info and send final api data off.
       collectAndSubmitData();
     });
   }
 
-  // Submit.
-  function setColumnType(type, value, keys) {
-    // Expects the binding values as names and returns
-    // them as column indeces based on the column `keys`.
-    if (type === 'column') {
-      const idx = keys.indexOf(value);
-      return idx < 0 ? '' : idx;
-    }
-    if (type === 'columns') {
-      return value.split(',').map(d => {
-        const idx = keys.indexOf(d);
-        return idx < 0 ? '' : idx;
-      });
-    }
-
-    throw Error(`Column type ${type} unknown`);
-  }
-
-  function convertToArrayOfArrays(array) {
-    const keys = Object.keys(array[0]);
-    const arrayOfArrays = array.map(Object.values);
-    arrayOfArrays.unshift(keys);
-    return arrayOfArrays;
-  }
-
-  async function handleSubmit() {
-    // Detect path (base vs empty chart).
-    if (!visJsonOptions && !metadata)
-      throw Error('Neither visualisation.json nor metadata available');
-
-    // Note, the existance of a pulled `/visualisation.json` stands as proof
-    // of a base chart visual as we don't pull it for an empty chart.
-
-    // Get base.
-    const base = {
-      template: visJsonOptions ? visJsonOptions.template : selectedTemplateId,
-      version: visJsonOptions ? visJsonOptions.version : selectedVersion,
-      api_key: apiKey,
-      container: '#chart-container', // ultimately needs to come from WP module
-    };
-
-    // Get data.
-    const dataInputs = selectAll('.data-url input').nodes();
-    const datasets = { data: {} };
-    for (const input of dataInputs) {
-      const dataset = select(input).datum()[0];
-      const url = input.value;
-      const data = url ? convertToArrayOfArrays(await csv(url)) : visJsonOptions.data[dataset];
-      datasets.data[dataset] = data;
-    }
-
-    // Get bindings
-    const userBindings = { bindings: {} };
-    selectAll('.binding input').each(function (d) {
-      // Columns of the respective dataset.
-      const dataColumns = datasets.data[d.dataset][0];
-      // Only push bindings with values.
-      if (this.value) {
-        // https://lodash.com/docs/4.17.15#set
-        lodash_set(
-          userBindings.bindings,
-          [d.dataset, d.key],
-          setColumnType(d.type, this.value, dataColumns)
-        );
-      }
-    });
-
-    // Get settings
-    const state = visJsonOptions ? cloneDeep(visJsonOptions.state) : undefined;
-
-    // Dispatch data
-    dispatch.call('apidata', this, {
-      base,
-      data: { ...datasets },
-      bindings: { ...userBindings },
-      state: { state },
-    });
-  }
-
-  function collectAndSubmitData() {
-    select('button#submit').style('display', 'block').on('click', handleSubmit);
-  }
-
   // Paths.
-  function emptyChartPath() {
-    show('#template-selections');
-    buildTemplatePickUI();
-  }
-
   function baseChartPath() {
     show('#vis-id');
 
@@ -4447,24 +4462,28 @@
       // Convert the bindings given by the visualisation.json as column indeces to names
       // and build out the data/bindings UI.
       const bindingsGiven = getObjectBindings(visJson.bindings, visJson.data, 'to_name');
-      buildBindingsUi(metadata.data_bindings, bindingsGiven);
+      buildBindingsUI(metadata.data_bindings, bindingsGiven);
+
+      buildSettingsUI();
 
       // Collate the data/bindings info and send final api data off.
       collectAndSubmitData();
     });
   }
 
+  function emptyChartPath() {
+    show('#template-selections');
+    buildTemplatePickUI();
+    buildSettingsUI();
+  }
+
   // Base.
-  function getPathChoice() {
+  function buildSelectUI() {
     select('#option-path')
       .selectAll('button')
       .on('click', function () {
         this.dataset.option === 'base_chart' ? baseChartPath() : emptyChartPath();
       });
-  }
-
-  function buildSelectUI() {
-    getPathChoice();
   }
 
   function isArrayIndex(x) {
@@ -5633,7 +5652,11 @@
   };
 
   function buildAPIChart({ base, data, bindings, state }) {
-    const apiOptions = { ...base, ...data, ...bindings, ...state };
+    const clonedState = cloneDeep(state);
+
+    lodash_set(clonedState.state, 'color.categorical_custom_palette', 'South Africa:skyblue');
+
+    const apiOptions = { ...base, ...data, ...bindings, ...clonedState };
     new Flourish.Live(apiOptions);
   }
 
