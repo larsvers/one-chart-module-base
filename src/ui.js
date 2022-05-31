@@ -204,6 +204,8 @@ function buildTemplatePickUI() {
 
 // Submit.
 function setColumnType(type, value, keys) {
+  // Expects the binding values as names and returns
+  // them as column indeces based on the column `keys`.
   if (type === 'column') {
     const idx = keys.indexOf(value);
     return idx < 0 ? '' : idx;
@@ -286,14 +288,19 @@ function baseChartPath() {
   show('#vis-id');
 
   select('#vis-id input').on('change', async function () {
+    // Get the user given /visualisation.json
     const visJson = await sendVisJsonRequest(this.value);
     visJsonOptions = cloneDeep(visJson); // we'll need them later to update
 
+    // Get the template's metadata.
     const metadata = await sendMetadataRequest(visJson.template, visJson.version);
 
+    // Convert the bindings given by the visualisation.json as column indeces to names
+    // and build out the data/bindings UI.
     const bindingsGiven = getObjectBindings(visJson.bindings, visJson.data, 'to_name');
     buildBindingsUi(metadata.data_bindings, bindingsGiven);
 
+    // Collate the data/bindings info and send final api data off.
     collectAndSubmitData();
   });
 }
