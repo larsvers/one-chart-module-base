@@ -6,6 +6,7 @@ import { select, selectAll } from 'd3-selection';
 import cloneDeep from 'lodash.clonedeep';
 import set from 'lodash.set';
 import { apiKey, dispatch } from './state.js';
+import { convertToArrayOfArrays } from './utils.js';
 
 // Globals.
 let visJsonOptions;
@@ -132,19 +133,12 @@ function setColumnType(type, value, keys) {
   throw Error(`Column type ${type} unknown`);
 }
 
-function convertToArrayOfArrays(array) {
-  const keys = Object.keys(array[0]);
-  const arrayOfArrays = array.map(Object.values);
-  arrayOfArrays.unshift(keys);
-  return arrayOfArrays;
-}
-
 async function handleSubmit() {
   // Detect path (base vs empty chart).
   if (!visJsonOptions && !metadata)
     throw Error('Neither visualisation.json nor metadata available');
 
-  // Note, the existance of a pulled `/visualisation.json` stands as proof
+  // Note, the existence of a pulled `/visualisation.json` stands as proof
   // of a base chart visual as we don't pull it for an empty chart.
 
   // Get base.
@@ -374,6 +368,10 @@ function buildSelectUI() {
   select('#option-path')
     .selectAll('button')
     .on('click', function () {
+      // Change button style
+      selectAll('#option-path button').classed('selected', false);
+      select(this).classed('selected', true);
+
       // eslint-disable-next-line no-unused-expressions
       this.dataset.option === 'base_chart' ? baseChartPath() : emptyChartPath();
     });

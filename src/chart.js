@@ -1,6 +1,8 @@
 import Flourish from '@flourish/live-api';
 import cloneDeep from 'lodash.clonedeep';
 import set from 'lodash.set';
+// For potential data wrangles:
+// import { convertToArrayOfArrays, convertToArrayOfObjects } from './utils.js';
 
 let visual;
 

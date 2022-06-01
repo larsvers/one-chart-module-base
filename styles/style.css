@@ -63,7 +63,7 @@ button {
   transition: all 0.2s;
 }
 
-#option-path button:focus {
+#option-path button.selected {
   background-color: #555;
   color: #eee;
 }

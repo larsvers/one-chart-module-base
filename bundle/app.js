@@ -86,8 +86,10 @@
 
   /* eslint-disable camelcase */
 
+  // Sub Pub from UI to Chart build.
   const dispatch = dispatch$1('apidata');
 
+  // Ideally there's a single parent scoped api key for the entire application.
   const apiKey = 'ibeisDkN0WvNvxeSbWLz0PKTAHPCksrufizuWLMUC6U-UlH2PekIv0jeq8yZUkhU';
 
   function ascending$1(a, b) {
@@ -4137,6 +4139,15 @@
 
   var lodash_set = set;
 
+  // Convert an array of objects to an array of arrays.
+  // Adding the column names as first row in result.
+  function convertToArrayOfArrays(array) {
+    const keys = Object.keys(array[0]);
+    const arrayOfArrays = array.map(Object.values);
+    arrayOfArrays.unshift(keys);
+    return arrayOfArrays;
+  }
+
   /* eslint-disable no-plusplus */
 
   // Globals.
@@ -4264,19 +4275,12 @@
     throw Error(`Column type ${type} unknown`);
   }
 
-  function convertToArrayOfArrays(array) {
-    const keys = Object.keys(array[0]);
-    const arrayOfArrays = array.map(Object.values);
-    arrayOfArrays.unshift(keys);
-    return arrayOfArrays;
-  }
-
   async function handleSubmit() {
     // Detect path (base vs empty chart).
     if (!visJsonOptions && !metadata)
       throw Error('Neither visualisation.json nor metadata available');
 
-    // Note, the existance of a pulled `/visualisation.json` stands as proof
+    // Note, the existence of a pulled `/visualisation.json` stands as proof
     // of a base chart visual as we don't pull it for an empty chart.
 
     // Get base.
@@ -4506,6 +4510,10 @@
     select('#option-path')
       .selectAll('button')
       .on('click', function () {
+        // Change button style
+        selectAll('#option-path button').classed('selected', false);
+        select(this).classed('selected', true);
+
         // eslint-disable-next-line no-unused-expressions
         this.dataset.option === 'base_chart' ? baseChartPath() : emptyChartPath();
       });
@@ -5675,6 +5683,9 @@
   	VERSION: VERSION,
   	Live: Fleet
   };
+
+  // For potential data wrangles:
+  // import { convertToArrayOfArrays, convertToArrayOfObjects } from './utils.js';
 
   let visual;
 
