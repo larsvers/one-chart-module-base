@@ -116,18 +116,14 @@ async function sendVisJsonRequest(visId) {
 }
 
 // Submit.
-function setColumnType(type, value, keys) {
+function setColumnType(type, value) {
   // Expects the binding values as names and returns
   // them as column indeces based on the column `keys`.
   if (type === 'column') {
-    const idx = keys.indexOf(value);
-    return idx < 0 ? '' : idx;
+    return value;
   }
   if (type === 'columns') {
-    return value.split(',').map(d => {
-      const idx = keys.indexOf(d);
-      return idx < 0 ? '' : idx;
-    });
+    return value.split(',');
   }
 
   throw Error(`Column type ${type} unknown`);
@@ -160,18 +156,18 @@ async function handleSubmit() {
   }
 
   // Get bindings
-  const userBindings = { bindings: {} };
+  const userBindings = { bindings: {}, columns: {} };
   selectAll('.binding input').each(function (d) {
     // Columns of the respective dataset.
     const dataColumns = datasets.data[d.dataset][0];
     // Only push bindings with values.
     if (this.value) {
+      // Setting the keys as names here. Also setting the name columns as for
+      // the visual we need to convert the names to the indexes (for the
+      // array of array data representation) and the name columns to send through)
       // https://lodash.com/docs/4.17.15#set
-      set(
-        userBindings.bindings,
-        [d.dataset, d.key],
-        setColumnType(d.type, this.value, dataColumns)
-      );
+      set(userBindings.bindings, [d.dataset, d.key], setColumnType(d.type, this.value));
+      userBindings.columns[d.dataset] = dataColumns;
     }
   });
 
@@ -198,8 +194,8 @@ async function handleSubmit() {
   dispatch.call('apidata', this, {
     base,
     data: { ...datasets },
-    bindings: { ...userBindings },
     state: { state },
+    userBindings: { ...userBindings },
     userSettings: parsedSettings,
   });
 }
