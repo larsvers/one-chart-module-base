@@ -8,14 +8,16 @@ import set from 'lodash.set';
 let visual;
 
 // Update bindings.
-function validateNewValue(value) {
+function validateURIComponent(value) {
   // If the value still has the marks, a respective URL param/has wasn't found.
   const valuePrefix = value.slice(0, 2);
-  if (valuePrefix === '{{' || valuePrefix === '{{')
-    throw Error(`The user defined URL parameter or hash "${value}" could not be found in the URL`);
+  if (valuePrefix === '{{')
+    throw Error(`The user defined URL parameter "${value}" could not be found in the URL`);
+  if (valuePrefix === '##')
+    throw Error(`The user defined URL hash "${value}" could not be found in the URL`);
 }
 
-function expandBinding(value) {
+function expandValue(value) {
   // Test each value if it's supposed to be URL given.
   let paramType;
   const valuePrefix = value.slice(0, 2);
@@ -57,12 +59,12 @@ function expandBinding(value) {
     }
   }
 
-  validateNewValue(newValue);
+  validateURIComponent(newValue);
 
   return newValue;
 }
 
-function expandBindings(bindings) {
+function expandValues(bindings) {
   const expandedBindings = {};
   // For each binding
   Object.entries(bindings).forEach(binding => {
@@ -71,10 +73,10 @@ function expandBindings(bindings) {
 
     let expandedValue;
     if (typeof value === 'string') {
-      expandedValue = expandBinding(value);
+      expandedValue = expandValue(value);
     }
     if (Array.isArray(value)) {
-      expandedValue = value.map(expandBinding);
+      expandedValue = value.map(expandValue);
     }
     expandedBindings[key] = expandedValue;
   });
@@ -110,7 +112,7 @@ function setBindings(userBindings) {
   Object.entries(cloned.bindings).forEach(datasetData => {
     const name = datasetData[0];
     const bindings = datasetData[1];
-    expanded.bindings[name] = expandBindings(bindings);
+    expanded.bindings[name] = expandValues(bindings);
     indexed.bindings[name] = indexBindings(expanded.bindings[name], cloned.columns[name]);
   });
 
@@ -121,19 +123,24 @@ function setBindings(userBindings) {
 function buildAPIChart({ base, data, state, userBindings, userSettings }) {
   // Update bindings (maybe expand, definitely index them).
   const updatedBindings = setBindings(userBindings);
-  console.log(updatedBindings);
+  console.log('updated bindings', updatedBindings);
 
   // Amend settings changed by user.
-  const clonedState = cloneDeep(state);
+  const updatedState = cloneDeep(state);
 
   if (userSettings.length) {
     userSettings.forEach(d => {
-      set(clonedState.state, d.setting, d.value);
+      // Expand the value if it's expandable.
+      const expandedValue = expandValue(d.value);
+
+      // Set the value.
+      set(updatedState.state, d.setting, expandedValue);
     });
   }
+  console.log('updated state', updatedState);
 
   // Compose and build visual
-  const apiOptions = { ...base, ...data, ...updatedBindings, ...clonedState };
+  const apiOptions = { ...base, ...data, ...updatedBindings, ...updatedState };
 
   if (!visual) {
     visual = new Flourish.Live(apiOptions);
